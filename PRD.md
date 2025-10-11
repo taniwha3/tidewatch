@@ -35,6 +35,7 @@ Build a comprehensive metrics collection system for Orange Pi running Belabox IR
 
 **Quick Links:**
 - **[MILESTONE-1.md](MILESTONE-1.md)** - Current milestone specification (Days 1-2)
+- **[docs/belabox-integration.md](docs/belabox-integration.md)** - Belabox integration strategy (GStreamer, journald, server-side SRT)
 - **Architecture Decisions** - All technical choices documented below
 
 ---
@@ -47,11 +48,11 @@ Build a comprehensive metrics collection system for Orange Pi running Belabox IR
 |-----------|-----------|--------|-----------|
 | **Programming Language** | Go 1.21+ | ✅ Decided | Single binary, low overhead, excellent concurrency, ARM cross-compilation |
 | **Local Storage** | SQLite (WAL mode) | ✅ Decided | Zero config, reliable, ACID compliance, good performance |
-| **Remote Server** | Self-hosted | ✅ Decided | Full control, no costs, privacy, flexibility |
+| **Remote Server** | VictoriaMetrics (self-hosted) | ✅ Decided | Single-node TSDB, JSONL import, Grafana compatible, efficient compression |
 | **Transport Protocol** | HTTP/HTTPS + JSON | ✅ Decided | Universal compatibility, easy debugging, firewall-friendly |
 | **Configuration** | YAML + Env vars | ✅ Decided | Human-readable config, env vars for secrets |
 | **Deployment** | Systemd service | ✅ Decided | Auto-restart, logging, standard Linux approach |
-| **Belabox Integration** | TBD | 🔍 Research | Needs investigation on actual device |
+| **Belabox Integration** | Journald + Server-side | ✅ Decided | On-device: parse journald logs; SRT stats: receiver /stats endpoint |
 | **Modem Metrics** | Deferred | ⏸️ Deferred | No hardware yet, will add later |
 
 ### Development Approach
@@ -692,20 +693,24 @@ logging:
 ### Database Schema
 
 ```sql
+-- Production schema (Milestone 2+)
 CREATE TABLE metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp INTEGER NOT NULL,  -- Unix ms
+    timestamp_ms INTEGER NOT NULL,  -- Unix milliseconds
     metric_name TEXT NOT NULL,
-    metric_value REAL,
-    tags TEXT,  -- JSON: {"core":"0","modem":"1"}
+    metric_value REAL,              -- For numeric metrics
+    value_text TEXT,                -- For status/state/string metrics
+    value_type INTEGER DEFAULT 0,   -- 0=real, 1=text
+    tags TEXT,                      -- JSON: {"core":"0","modem":"1"}
     session_id TEXT,
-    uploaded INTEGER DEFAULT 0,  -- 0=pending, 1=uploaded
-    priority INTEGER DEFAULT 2   -- 0=critical, 1=high, 2=normal, 3=low
+    device_id TEXT,
+    uploaded INTEGER DEFAULT 0,     -- 0=pending, 1=uploaded
+    priority INTEGER DEFAULT 2      -- 0=critical, 1=high, 2=normal, 3=low
 );
 
-CREATE INDEX idx_timestamp ON metrics(timestamp);
-CREATE INDEX idx_metric_session ON metrics(metric_name, session_id, timestamp);
-CREATE INDEX idx_uploaded ON metrics(uploaded, priority, timestamp);
+CREATE INDEX idx_timestamp ON metrics(timestamp_ms);
+CREATE INDEX idx_metric_session ON metrics(metric_name, session_id, timestamp_ms);
+CREATE INDEX idx_uploaded ON metrics(uploaded, priority, timestamp_ms);
 
 CREATE TABLE sessions (
     id TEXT PRIMARY KEY,
@@ -721,7 +726,17 @@ CREATE TABLE upload_checkpoints (
     last_uploaded_timestamp INTEGER,
     upload_time INTEGER
 );
+
+-- SQLite tuning for ARM SBC (run after opening DB)
+PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL;
+PRAGMA busy_timeout=10000;
+PRAGMA journal_size_limit=67108864;  -- 64MB
+PRAGMA temp_store=MEMORY;
+-- Run PRAGMA wal_checkpoint(TRUNCATE) hourly or at shutdown
 ```
+
+**Note:** Milestone 1 uses minimal schema (no value_text, priority, uploaded); full schema in Milestone 2.
 
 ### Remote API Contract
 
@@ -901,23 +916,23 @@ sqlite3 /var/lib/belabox-metrics/active/metrics.db "SELECT COUNT(*) FROM metrics
 
 ## Open Questions
 
-### Critical (blocking progress)
+### Resolved ✅
 
-1. **Belabox Integration**
-   - ❓ Does Belabox expose a stats API?
-   - ❓ Where are Belabox logs stored?
-   - ❓ What format are SRT stats in?
-   - **Action:** SSH to Orange Pi and investigate
+1. **Belabox Integration** ✅ RESOLVED
+   - Belabox uses GStreamer (belacoder), not FFmpeg
+   - SRT stats NOT accessible on-device (owned by process)
+   - **Solution:** Parse journald logs for encoder metrics; get SRT stats from server-side SRTLA receiver `/stats` endpoint
+   - **See:** `docs/belabox-integration.md`
 
-2. **Remote Server**
-   - ❓ What specific technology? (Prometheus, InfluxDB, VictoriaMetrics, custom)
-   - ❓ Is server infrastructure ready?
-   - ❓ Authentication mechanism?
-   - **Action:** Decide and set up server in parallel
+2. **Remote Server** ✅ RESOLVED
+   - **Technology:** VictoriaMetrics single-node + vmagent
+   - **Ingest:** JSONL at `/api/v1/import` (supports gzip + historical timestamps)
+   - **Visualization:** Grafana with PromQL
+   - **Auth:** Bearer token from file, rotate via SIGHUP
 
-### Non-blocking (can defer)
+### Still Open
 
-3. **Modem Integration**
+3. **Modem Integration** (non-blocking)
    - ❓ What modem models will be used?
    - ❓ Is ModemManager available?
    - **Action:** Defer until hardware arrives

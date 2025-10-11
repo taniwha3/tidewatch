@@ -83,33 +83,36 @@ Milestone 1 is complete when:
 
 ---
 
-## First Priority: Investigate Belabox
+## Architecture Decisions from Technical Review
 
-**BEFORE writing any code**, run this investigation on the Orange Pi:
+Based on deep technical review of Orange Pi 5+ (RK3588) and Belabox:
 
-```bash
-# SSH to Orange Pi
-ssh user@orangepi.local
+### Key Findings
+1. **Belabox uses GStreamer** (belacoder), NOT FFmpeg
+2. **SRT stats NOT accessible on-device** - SRT sockets owned by belacoder process
+3. **Solution:** Get SRT metrics server-side from SRTLA receiver's `/stats` endpoint
+4. **Encoder metrics:** Parse journald logs from belacoder (avoids CGO)
+5. **HDMI metrics:** Use `v4l2-ctl` (shell out for MVP, ioctl later)
+6. **RK3588 thermals:** Multiple zones in `/sys/class/thermal/thermal_zone*`
 
-# Check for HTTP endpoints
-netstat -tlnp | grep -E ':(808|900)'
-ss -tlnp
+### Milestone 1 Adjusted Scope
 
-# Look for stats files
-find /var -name "*stats*" 2>/dev/null
-find /tmp -name "*srt*" 2>/dev/null
+**Collect:**
+1. **CPU Temperature** - Real (from RK3588 thermal zones) ✅
+2. **System Metrics** - Real (CPU usage, RAM, optional bonus) ✅
+3. **SRT Packet Loss** - Mock (server-side collector in Milestone 2) ⏸️
 
-# Check Belabox logs  
-journalctl -u belabox* --no-pager | tail -100
-ls -la /var/log/ | grep bela
+**Why mock SRT for M1:**
+- Real SRT stats require server-side collector (separate component)
+- Don't want to block MVP on setting up receiver stats endpoint
+- Validates architecture without complexity
 
-# Check running processes
-ps aux | grep -E 'bela|srt'
-systemctl list-units | grep bela
-```
+**Deferred to Milestone 2:**
+- Encoder metrics (journald parsing)
+- HDMI input metrics (v4l2-ctl)
+- Server-side SRT stats (receiver API)
 
-**Time budget:** 30 minutes max  
-**Document findings in:** `docs/belabox-integration.md`
+See `docs/belabox-integration.md` for complete implementation strategy.
 
 ---
 
@@ -140,21 +143,40 @@ func getCPUTemperature() float64 {
 
 **Interval:** 30 seconds
 
-#### 2. SRT Packet Loss
+#### 2. SRT Packet Loss (Mock for M1)
 
-**Mock (fallback):**
+**Implementation:**
 ```go
 func getSRTPacketLoss() float64 {
-    if rand.Float64() < 0.1 {
+    // Simulate occasional packet loss
+    if rand.Float64() < 0.1 {  // 10% chance
         return rand.Float64() * 5.0  // 0-5% loss
     }
     return 0.0
 }
 ```
 
-**Real (if found):** Based on investigation findings
-
 **Interval:** 5 seconds
+
+**Note:** Real SRT stats require server-side collector (SRTLA receiver `/stats` endpoint). This is deferred to Milestone 2. See `docs/belabox-integration.md` for details.
+
+#### 3. Bonus Metrics (if time permits)
+
+**CPU Usage:**
+```go
+// Read /proc/stat, calculate percentage
+```
+
+**Memory Available:**
+```go
+// Read /proc/meminfo, parse MemAvailable
+```
+
+**All Thermal Zones (RK3588):**
+```go
+// Read /sys/class/thermal/thermal_zone*/type and temp
+// Zones: SoC, big cores, small cores, GPU, NPU
+```
 
 ### Data Model
 
@@ -170,16 +192,27 @@ type Metric struct {
 ### SQLite Schema
 
 ```sql
+-- Minimal schema for Milestone 1
+-- Enhanced in Milestone 2 with value_type, value_text for non-numeric metrics
 CREATE TABLE IF NOT EXISTS metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp INTEGER NOT NULL,
+    timestamp_ms INTEGER NOT NULL,     -- Unix milliseconds
     metric_name TEXT NOT NULL,
-    metric_value REAL,
+    metric_value REAL,                 -- Numeric value
     device_id TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_timestamp ON metrics(timestamp);
+CREATE INDEX IF NOT EXISTS idx_timestamp ON metrics(timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_name_time ON metrics(metric_name, timestamp_ms);
+
+-- SQLite tuning for ARM SBC (set after opening DB)
+PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL;
+PRAGMA busy_timeout=10000;
+PRAGMA temp_store=MEMORY;
 ```
+
+**Note:** Full production schema (with `value_type`, `value_text`, `priority`, `uploaded`) added in Milestone 2.
 
 ### Config File
 
@@ -193,6 +226,8 @@ storage:
   path: /var/lib/belabox-metrics/metrics.db
 
 remote:
+  # For Milestone 1: simple receiver endpoint
+  # For Milestone 2+: VictoriaMetrics /api/v1/import (JSONL + gzip)
   url: http://example.com:8080/api/metrics
   enabled: true
 
@@ -204,6 +239,15 @@ metrics:
   - name: srt.packet_loss
     interval: 5s
     enabled: true
+
+  # Bonus metrics (optional for M1)
+  - name: cpu.usage
+    interval: 30s
+    enabled: false
+
+  - name: memory.available
+    interval: 30s
+    enabled: false
 ```
 
 ### Remote API
@@ -276,8 +320,10 @@ thugshells/
 
 ## Implementation Tasks
 
-### Task 1: Investigate Belabox (30 min)
-See "First Priority" section above.
+### Task 1: Review Belabox Integration Strategy
+Read `docs/belabox-integration.md` - already completed based on technical review.
+
+**Key takeaway:** Use mock SRT data for M1; real data comes from server-side collector in M2.
 
 ### Task 2: Initialize Project
 ```bash
@@ -452,18 +498,19 @@ journalctl -u metrics-collector -f
 - [ ] Compiles on macOS
 - [ ] Cross-compiles to ARM64
 - [ ] Runs on macOS with mocks
-- [ ] Creates SQLite database
-- [ ] Can query and see metrics
-- [ ] HTTP POST sends metrics
-- [ ] Receiver logs show metrics
-- [ ] Install script works on Pi
+- [ ] Creates SQLite database with WAL mode
+- [ ] Can query and see metrics with timestamps
+- [ ] HTTP POST sends metrics to receiver
+- [ ] Receiver logs show metrics arriving
+- [ ] Install script works on Orange Pi
 - [ ] Service starts successfully
 - [ ] Service enabled for boot
-- [ ] Real CPU temp on Pi
-- [ ] Restarts after crash
+- [ ] Real CPU temp on Pi (from thermal zones)
+- [ ] Mock SRT packet loss data generating
+- [ ] Restarts after crash (kill -9 test)
 - [ ] Starts on reboot
-- [ ] Logs via journalctl
-- [ ] docs/belabox-integration.md created
+- [ ] Logs via journalctl visible
+- [ ] docs/belabox-integration.md exists ✅
 
 ---
 
