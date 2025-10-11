@@ -1,0 +1,50 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+metrics-collector
+metrics-receiver
+metrics-collector-*
+
+# Build artifacts
+dist/
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local development
+/var/lib/belabox-metrics/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Config with secrets
+/configs/config.yaml
+!/configs/config.yaml.example
+
+# Specstory
+.specstory/
