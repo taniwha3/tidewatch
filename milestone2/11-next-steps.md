@@ -10,4 +10,9 @@ Once Milestone 2 is complete, move to Milestone 3:
 - Grafana dashboard creation
 - Deploy to Orange Pi for real hardware testing
 - TLS certificate pinning
+- **Clock skew detection refinements:**
+  - Migrate from `log.Printf` to structured logging (log/slog)
+  - Integrate periodic checking routine (5min interval) into main collector loop
+  - Add clock skew warnings to health endpoint status
+  - Make clock skew collector auto-discover auth token from uploader config
 

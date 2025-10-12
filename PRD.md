@@ -1006,6 +1006,41 @@ if err := upload.Upload(ctx, metrics); err == nil {
 
 ---
 
+### Milestone 2 Issues (To be addressed in Milestone 3)
+
+#### [P2] Clock Skew Detection Using Basic Logging — `internal/collector/clock.go`
+
+**Problem:** The clock skew collector uses basic `log.Printf` instead of structured logging for warning messages. This is acceptable for Milestone 2 but should be migrated to `log/slog` with proper context fields in Milestone 3 when Enhanced Logging is implemented.
+
+**Current Implementation (M2):**
+```go
+// Temporary implementation using log.Printf
+log.Printf("WARNING: Clock skew detected: local clock is %dms %s of server %s (threshold: %dms)",
+    absSkewMs, direction, c.clockSkewURL, c.warnThresholdMs)
+```
+
+**Target Implementation (M3):**
+```go
+// Structured logging with context fields
+slog.Warn("Clock skew detected",
+    "skew_ms", absSkewMs,
+    "direction", direction,
+    "server_url", c.clockSkewURL,
+    "threshold_ms", c.warnThresholdMs,
+    "device_id", c.deviceID)
+```
+
+**Additional M3 Improvements:**
+- Integrate periodic checking (5min interval) into main collector loop
+- Add clock skew warnings to `/health` endpoint component status
+- Auto-discover auth token from uploader config (avoid manual config duplication)
+
+**Priority:** P2 - Can wait for structured logging implementation in M3.
+
+**Status:** Clock skew detection is functional in M2 with working auth, GET method, and warning emission. Refinements scheduled for M3.
+
+---
+
 ## Success Criteria
 
 **MVP Success (Day 3):**

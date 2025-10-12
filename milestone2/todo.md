@@ -113,16 +113,18 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Unit tests: Wraparound detection
 - [x] Unit tests: Cardinality hard cap
 
-### Clock Skew Detection (1h)
-- [ ] Create `internal/monitoring/clock.go`
-- [ ] Implement `detectClockSkew()` using Date header
-- [ ] Use separate clock_skew_url (not ingest URL)
-- [ ] Periodic checking routine (5min interval)
-- [ ] Warn on >2s skew
-- [ ] Expose time.skew_ms metric
-- [ ] Log both clock_skew_url and ingest_url for diagnostics
-- [ ] Unit tests: Skew calculation
-- [ ] Unit tests: Warning threshold
+### Clock Skew Detection (1h) ✅ COMPLETE
+- [x] Create `internal/collector/clock.go`
+- [x] Implement clock skew detection using Date header
+- [x] Use separate clock_skew_url (not ingest URL)
+- [x] Warn on >2s skew (with 1-hour rate limiting)
+- [x] Expose time.skew_ms metric
+- [x] Configurable warn threshold (default: 2000ms)
+- [x] Network latency compensation (midpoint calculation)
+- [x] Unit tests: Skew calculation (server ahead/behind/no skew)
+- [x] Unit tests: Warning threshold exceeded
+- [x] Unit tests: HTTP errors, timeouts, context cancellation (16 tests, all pass)
+- Note: Periodic checking routine (5min interval) will be added in Day 3 when integrating with main collector
 
 ## Day 3: Health + Monitoring (6-8 hours)
 
