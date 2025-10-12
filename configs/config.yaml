@@ -9,6 +9,14 @@ remote:
   enabled: true
   upload_interval: 30s
 
+monitoring:
+  clock_skew_url: http://localhost:8428/health
+  health_address: ":9100"
+
+logging:
+  level: info      # debug, info, warn, error
+  format: console  # json, console
+
 metrics:
   - name: cpu.temperature
     interval: 30s

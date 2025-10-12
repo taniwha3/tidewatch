@@ -14,6 +14,7 @@ type Config struct {
 	Storage    StorageConfig    `yaml:"storage"`
 	Remote     RemoteConfig     `yaml:"remote"`
 	Monitoring MonitoringConfig `yaml:"monitoring"`
+	Logging    LoggingConfig    `yaml:"logging"`
 	Metrics    []MetricConfig   `yaml:"metrics"`
 }
 
@@ -39,6 +40,12 @@ type RemoteConfig struct {
 type MonitoringConfig struct {
 	ClockSkewURL  string `yaml:"clock_skew_url"`  // URL for clock skew detection (e.g., http://localhost:8428/health)
 	HealthAddress string `yaml:"health_address"`  // Address for health endpoint server (e.g., ":9100")
+}
+
+// LoggingConfig contains logging settings
+type LoggingConfig struct {
+	Level  string `yaml:"level"`  // debug, info, warn, error (default: info)
+	Format string `yaml:"format"` // json, console (default: console)
 }
 
 // UploadInterval parses the upload interval string to time.Duration

@@ -1,16 +1,29 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/taniwha3/thugshells/internal/logging"
 	"github.com/taniwha3/thugshells/internal/models"
 	"github.com/taniwha3/thugshells/internal/storage"
 	"github.com/taniwha3/thugshells/internal/uploader"
 )
+
+// testLogger creates a logger for testing that writes to a buffer
+func testLogger() *slog.Logger {
+	var buf bytes.Buffer
+	return logging.New(logging.Config{
+		Level:  logging.LevelDebug,
+		Format: logging.FormatConsole,
+		Output: &buf,
+	})
+}
 
 // mockUploader implements a simple mock uploader for testing
 type mockUploader struct {
@@ -93,7 +106,8 @@ func TestUploadMetrics_MarksMetricsAsUploaded(t *testing.T) {
 	mockUpload := &mockUploader{}
 
 	// Upload metrics
-	if _, err := uploadMetrics(ctx, store, mockUpload); err != nil {
+	logger := testLogger()
+	if _, err := uploadMetrics(ctx, store, mockUpload, logger); err != nil {
 		t.Fatalf("Upload failed: %v", err)
 	}
 
@@ -113,7 +127,7 @@ func TestUploadMetrics_MarksMetricsAsUploaded(t *testing.T) {
 
 	// Verify second upload attempt returns no metrics
 	mockUpload.uploadedMetrics = nil
-	if _, err := uploadMetrics(ctx, store, mockUpload); err != nil {
+	if _, err := uploadMetrics(ctx, store, mockUpload, logger); err != nil {
 		t.Fatalf("Second upload failed: %v", err)
 	}
 	if len(mockUpload.uploadedMetrics) != 0 {
@@ -152,7 +166,8 @@ func TestUploadMetrics_DoesNotMarkOnFailure(t *testing.T) {
 	mockUpload := &mockUploader{shouldFail: true}
 
 	// Attempt upload (should fail)
-	if _, err := uploadMetrics(ctx, store, mockUpload); err == nil {
+	logger := testLogger()
+	if _, err := uploadMetrics(ctx, store, mockUpload, logger); err == nil {
 		t.Fatal("Expected upload to fail, but it succeeded")
 	}
 
@@ -207,7 +222,8 @@ func TestUploadMetrics_BatchLimit(t *testing.T) {
 	mockUpload := &mockUploader{}
 
 	// First upload should only upload 2500 (batch limit)
-	if _, err := uploadMetrics(ctx, store, mockUpload); err != nil {
+	logger := testLogger()
+	if _, err := uploadMetrics(ctx, store, mockUpload, logger); err != nil {
 		t.Fatalf("Upload failed: %v", err)
 	}
 
@@ -226,7 +242,7 @@ func TestUploadMetrics_BatchLimit(t *testing.T) {
 
 	// Second upload should upload remaining 500
 	mockUpload.uploadedMetrics = nil
-	if _, err := uploadMetrics(ctx, store, mockUpload); err != nil {
+	if _, err := uploadMetrics(ctx, store, mockUpload, logger); err != nil {
 		t.Fatalf("Second upload failed: %v", err)
 	}
 

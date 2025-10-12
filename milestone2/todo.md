@@ -184,20 +184,20 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] **P1 FIX**: Record success only after storage write succeeds
 - [x] **P1 FIX**: Treat storage failures as collection failures in meta-metrics
 
-### Enhanced Logging (1-2h)
-- [ ] Migrate from `log` to `log/slog`
-- [ ] Create JSON formatter
-- [ ] Create console formatter for development
-- [ ] Add collection contextual fields: collector_name, count, duration_ms, session_id
-- [ ] Add upload contextual fields: batch_id, chunk_index, attempt, backoff_ms, http_status, bytes_sent, bytes_rcvd, duration_ms
-- [ ] Add retry contextual fields: attempt, backoff_ms, error, error_type
-- [ ] Add error contextual fields: error, error_type, stack (if panic)
-- [ ] Configuration for level (debug, info, warn, error)
-- [ ] Configuration for format (json, console)
-- [ ] Update all log statements throughout codebase
-- [ ] Unit tests: JSON formatter output
-- [ ] Unit tests: Console formatter output
-- [ ] Unit tests: Required field presence
+### Enhanced Logging (1-2h) ✅ COMPLETE
+- [x] Migrate from `log` to `log/slog`
+- [x] Create JSON formatter
+- [x] Create console formatter for development
+- [x] Add collection contextual fields: collector_name, count, duration_ms, session_id
+- [x] Add upload contextual fields: batch_id, chunk_index, attempt, backoff_ms, http_status, bytes_sent, bytes_rcvd, duration_ms
+- [x] Add retry contextual fields: attempt, backoff_ms, error, error_type
+- [x] Add error contextual fields: error, error_type, stack (if panic)
+- [x] Configuration for level (debug, info, warn, error)
+- [x] Configuration for format (json, console)
+- [x] Update all log statements throughout codebase
+- [x] Unit tests: JSON formatter output
+- [x] Unit tests: Console formatter output
+- [x] Unit tests: Required field presence
 
 ### WAL Checkpoint Routine (1h)
 - [ ] Add `startWALCheckpointRoutine()` to storage
@@ -409,14 +409,14 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [ ] Separate clock_skew_url used (not ingest URL)
 
 ### Logging
-- [ ] Structured logging with log/slog
-- [ ] JSON format works
-- [ ] Console format works for development
-- [ ] Log levels configurable (debug, info, warn, error)
-- [ ] Collection logs include: collector, count, duration_ms, session_id
-- [ ] Upload logs include: batch_id, chunk_index, attempt, backoff_ms, http_status, bytes_sent, bytes_rcvd
-- [ ] Retry logs include: attempt, backoff_ms, error
-- [ ] No sensitive data in logs
+- [x] Structured logging with log/slog
+- [x] JSON format works
+- [x] Console format works for development
+- [x] Log levels configurable (debug, info, warn, error)
+- [x] Collection logs include: collector, count, duration_ms, session_id
+- [x] Upload logs include: batch_id, chunk_index, attempt, backoff_ms, http_status, bytes_sent, bytes_rcvd
+- [x] Retry logs include: attempt, backoff_ms, error
+- [x] No sensitive data in logs
 
 ### Security
 - [ ] Systemd runs as non-root metrics user

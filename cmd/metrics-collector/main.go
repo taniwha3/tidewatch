@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"github.com/taniwha3/thugshells/internal/collector"
 	"github.com/taniwha3/thugshells/internal/config"
 	"github.com/taniwha3/thugshells/internal/health"
+	"github.com/taniwha3/thugshells/internal/logging"
 	"github.com/taniwha3/thugshells/internal/monitoring"
 	"github.com/taniwha3/thugshells/internal/storage"
 	"github.com/taniwha3/thugshells/internal/uploader"
@@ -44,40 +46,70 @@ func main() {
 		log.Fatalf("Invalid config: %v", err)
 	}
 
-	log.Printf("Starting metrics collector for device: %s", cfg.Device.ID)
-	log.Printf("Storage: %s", cfg.Storage.Path)
-	log.Printf("Remote: %s (enabled: %t)", cfg.Remote.URL, cfg.Remote.Enabled)
+	// Initialize structured logging
+	logLevel := logging.LevelInfo
+	if cfg.Logging.Level != "" {
+		logLevel = logging.Level(cfg.Logging.Level)
+	}
+	logFormat := logging.FormatConsole
+	if cfg.Logging.Format != "" {
+		logFormat = logging.Format(cfg.Logging.Format)
+	}
+
+	logger := logging.New(logging.Config{
+		Level:  logLevel,
+		Format: logFormat,
+		Output: os.Stdout,
+	})
+	logging.SetDefault(logger)
+
+	logger.Info("Starting metrics collector",
+		slog.String("device_id", cfg.Device.ID),
+		slog.String("version", appVersion),
+	)
+	logger.Info("Configuration loaded",
+		slog.String("storage_path", cfg.Storage.Path),
+		slog.String("remote_url", cfg.Remote.URL),
+		slog.Bool("remote_enabled", cfg.Remote.Enabled),
+		slog.String("log_level", string(logLevel)),
+		slog.String("log_format", string(logFormat)),
+	)
 
 	// Initialize storage
 	store, err := storage.NewSQLiteStorage(cfg.Storage.Path)
 	if err != nil {
-		log.Fatalf("Failed to initialize storage: %v", err)
+		logger.Error("Failed to initialize storage", slog.Any("error", err))
+		os.Exit(1)
 	}
 	defer store.Close()
-	log.Printf("Storage initialized")
+	logger.Info("Storage initialized")
 
 	// Initialize meta-metrics collector
 	metricsCollector := monitoring.NewMetricsCollector(cfg.Device.ID)
-	log.Printf("Meta-metrics collector initialized")
+	logger.Info("Meta-metrics collector initialized")
 
 	// Initialize health checker with thresholds derived from upload interval
 	uploadInterval := cfg.Remote.UploadInterval()
 	healthThresholds := health.ThresholdsFromUploadInterval(uploadInterval)
 	healthChecker := health.NewChecker(healthThresholds)
-	log.Printf("Health checker initialized (upload interval: %s, OK threshold: %ds, degraded: %ds, error: %ds)",
-		uploadInterval, healthThresholds.UploadOKInterval, healthThresholds.UploadDegradedInterval, healthThresholds.UploadErrorInterval)
+	logger.Info("Health checker initialized",
+		slog.Duration("upload_interval", uploadInterval),
+		slog.Int("ok_threshold_sec", healthThresholds.UploadOKInterval),
+		slog.Int("degraded_threshold_sec", healthThresholds.UploadDegradedInterval),
+		slog.Int("error_threshold_sec", healthThresholds.UploadErrorInterval),
+	)
 
 	// Initialize uploader (if remote enabled)
 	var upload uploader.Uploader
 	if cfg.Remote.Enabled {
 		upload = uploader.NewHTTPUploader(cfg.Remote.URL, cfg.Device.ID)
 		defer upload.Close()
-		log.Printf("Uploader initialized")
+		logger.Info("Uploader initialized")
 	}
 
 	// Initialize collectors
-	collectors := initializeCollectors(cfg)
-	log.Printf("Initialized %d collectors", len(collectors))
+	collectors := initializeCollectors(cfg, logger)
+	logger.Info("Collectors initialized", slog.Int("count", len(collectors)))
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -98,9 +130,9 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		log.Printf("Starting health server on %s", healthAddr)
+		logger.Info("Starting health server", slog.String("address", healthAddr))
 		if err := healthChecker.StartHTTPServer(ctx, healthAddr); err != nil {
-			log.Printf("Health server error: %v", err)
+			logger.Error("Health server error", slog.Any("error", err))
 		}
 	}()
 
@@ -109,7 +141,7 @@ func main() {
 		wg.Add(1)
 		go func(name string, c collector.Collector, interval time.Duration) {
 			defer wg.Done()
-			runCollector(ctx, name, c, interval, store, upload, healthChecker, metricsCollector)
+			runCollector(ctx, name, c, interval, store, upload, healthChecker, metricsCollector, logger)
 		}(name, coll.collector, coll.interval)
 	}
 
@@ -118,7 +150,7 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			runUploadLoop(ctx, store, upload, cfg.Remote.UploadInterval(), healthChecker, metricsCollector)
+			runUploadLoop(ctx, store, upload, cfg.Remote.UploadInterval(), healthChecker, metricsCollector, logger)
 		}()
 	}
 
@@ -126,21 +158,21 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		runStorageMonitoring(ctx, store, healthChecker, metricsCollector)
+		runStorageMonitoring(ctx, store, healthChecker, metricsCollector, logger)
 	}()
 
 	// Start meta-metrics collection loop
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		runMetaMetricsLoop(ctx, store, metricsCollector, 60*time.Second)
+		runMetaMetricsLoop(ctx, store, metricsCollector, 60*time.Second, logger)
 	}()
 
-	log.Printf("All collectors started. Press Ctrl+C to stop.")
+	logger.Info("All collectors started. Press Ctrl+C to stop.")
 
 	// Wait for shutdown signal
 	<-sigChan
-	log.Printf("Shutdown signal received, stopping...")
+	logger.Info("Shutdown signal received, stopping...")
 
 	// Cancel context to stop all goroutines
 	cancel()
@@ -148,7 +180,7 @@ func main() {
 	// Wait for all goroutines to finish
 	wg.Wait()
 
-	log.Printf("Shutdown complete")
+	logger.Info("Shutdown complete")
 }
 
 type collectorInfo struct {
@@ -157,14 +189,17 @@ type collectorInfo struct {
 }
 
 // initializeCollectors creates and configures all enabled collectors
-func initializeCollectors(cfg *config.Config) map[string]collectorInfo {
+func initializeCollectors(cfg *config.Config, logger *slog.Logger) map[string]collectorInfo {
 	collectors := make(map[string]collectorInfo)
 	enabled := cfg.EnabledMetrics()
 
 	for _, mc := range enabled {
 		interval, err := mc.IntervalDuration()
 		if err != nil {
-			log.Printf("Invalid interval for %s: %v, skipping", mc.Name, err)
+			logger.Warn("Invalid interval, skipping collector",
+				slog.String("collector", mc.Name),
+				slog.Any("error", err),
+			)
 			continue
 		}
 
@@ -176,7 +211,7 @@ func initializeCollectors(cfg *config.Config) map[string]collectorInfo {
 		case "srt.packet_loss":
 			coll = collector.NewMockSRTCollector(cfg.Device.ID)
 		default:
-			log.Printf("Unknown metric: %s, skipping", mc.Name)
+			logger.Warn("Unknown metric, skipping", slog.String("collector", mc.Name))
 			continue
 		}
 
@@ -185,7 +220,10 @@ func initializeCollectors(cfg *config.Config) map[string]collectorInfo {
 			interval:  interval,
 		}
 
-		log.Printf("Registered collector: %s (interval: %s)", mc.Name, interval)
+		logger.Info("Registered collector",
+			slog.String("collector", mc.Name),
+			slog.Duration("interval", interval),
+		)
 	}
 
 	return collectors
@@ -201,19 +239,20 @@ func runCollector(
 	upload uploader.Uploader,
 	healthChecker *health.Checker,
 	metricsCollector *monitoring.MetricsCollector,
+	logger *slog.Logger,
 ) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	// Collect immediately on start
-	collectAndStore(ctx, name, coll, store, healthChecker, metricsCollector)
+	collectAndStore(ctx, name, coll, store, healthChecker, metricsCollector, logger)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			collectAndStore(ctx, name, coll, store, healthChecker, metricsCollector)
+			collectAndStore(ctx, name, coll, store, healthChecker, metricsCollector, logger)
 		}
 	}
 }
@@ -226,6 +265,7 @@ func collectAndStore(
 	store *storage.SQLiteStorage,
 	healthChecker *health.Checker,
 	metricsCollector *monitoring.MetricsCollector,
+	logger *slog.Logger,
 ) {
 	startTime := time.Now()
 	metrics, err := coll.Collect(ctx)
@@ -241,7 +281,11 @@ func collectAndStore(
 		if metricsCollector != nil {
 			metricsCollector.RecordCollectionFailure(name)
 		}
-		log.Printf("[%s] Collection failed: %v", name, err)
+		logger.Error("Collection failed",
+			slog.String("collector", name),
+			slog.Any("error", err),
+			slog.Int64("duration_ms", collectionDuration.Milliseconds()),
+		)
 		return
 	}
 
@@ -263,7 +307,11 @@ func collectAndStore(
 		if metricsCollector != nil {
 			metricsCollector.RecordCollectionFailure(name)
 		}
-		log.Printf("[%s] Failed to store metrics: %v", name, err)
+		logger.Error("Failed to store metrics",
+			slog.String("collector", name),
+			slog.Int("count", len(metrics)),
+			slog.Any("error", err),
+		)
 		return
 	}
 
@@ -276,7 +324,11 @@ func collectAndStore(
 		metricsCollector.RecordCollectionSuccess(name, len(metrics), totalDuration)
 	}
 
-	log.Printf("[%s] Collected and stored %d metric(s)", name, len(metrics))
+	logger.Info("Collection completed",
+		slog.String("collector", name),
+		slog.Int("count", len(metrics)),
+		slog.Int64("duration_ms", totalDuration.Milliseconds()),
+	)
 }
 
 // runUploadLoop periodically uploads metrics to remote endpoint
@@ -287,11 +339,12 @@ func runUploadLoop(
 	interval time.Duration,
 	healthChecker *health.Checker,
 	metricsCollector *monitoring.MetricsCollector,
+	logger *slog.Logger,
 ) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	log.Printf("Upload loop started (interval: %s)", interval)
+	logger.Info("Upload loop started", slog.Duration("interval", interval))
 
 	lastUploadTime := time.Now()
 	var lastUploadErr error
@@ -302,7 +355,7 @@ func runUploadLoop(
 			return
 		case <-ticker.C:
 			startTime := time.Now()
-			count, err := uploadMetrics(ctx, store, upload)
+			count, err := uploadMetrics(ctx, store, upload, logger)
 			duration := time.Since(startTime)
 
 			if err == nil {
@@ -333,13 +386,14 @@ func uploadMetrics(
 	ctx context.Context,
 	store *storage.SQLiteStorage,
 	upload uploader.Uploader,
+	logger *slog.Logger,
 ) (int, error) {
 	// Query unuploaded metrics (limit to reasonable batch size)
 	const batchSize = 2500
 	metrics, err := store.QueryUnuploaded(ctx, batchSize)
 
 	if err != nil {
-		log.Printf("[upload] Failed to query unuploaded metrics: %v", err)
+		logger.Error("Failed to query unuploaded metrics", slog.Any("error", err))
 		return 0, err
 	}
 
@@ -360,19 +414,27 @@ func uploadMetrics(
 
 	// Upload metrics
 	if err := upload.Upload(ctx, metrics); err != nil {
-		log.Printf("[upload] Failed to upload %d metrics: %v", len(metrics), err)
+		logger.Error("Upload failed",
+			slog.Int("count", len(metrics)),
+			slog.Any("error", err),
+		)
 		return 0, err
 	}
 
 	// Mark metrics as uploaded after successful upload
 	if len(metricIDs) > 0 {
 		if err := store.MarkUploaded(ctx, metricIDs); err != nil {
-			log.Printf("[upload] Warning: Failed to mark %d metrics as uploaded: %v", len(metricIDs), err)
+			logger.Warn("Failed to mark metrics as uploaded",
+				slog.Int("count", len(metricIDs)),
+				slog.Any("error", err),
+			)
 			// Don't return error here - metrics were uploaded successfully
 		}
 	}
 
-	log.Printf("[upload] Uploaded and marked %d metric(s) as uploaded", len(metrics))
+	logger.Info("Upload completed",
+		slog.Int("count", len(metrics)),
+	)
 	return len(metrics), nil
 }
 
@@ -382,19 +444,20 @@ func runStorageMonitoring(
 	store *storage.SQLiteStorage,
 	healthChecker *health.Checker,
 	metricsCollector *monitoring.MetricsCollector,
+	logger *slog.Logger,
 ) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	// Update immediately on start
-	updateStorageHealth(ctx, store, healthChecker, metricsCollector)
+	updateStorageHealth(ctx, store, healthChecker, metricsCollector, logger)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			updateStorageHealth(ctx, store, healthChecker, metricsCollector)
+			updateStorageHealth(ctx, store, healthChecker, metricsCollector, logger)
 		}
 	}
 }
@@ -405,22 +468,23 @@ func updateStorageHealth(
 	store *storage.SQLiteStorage,
 	healthChecker *health.Checker,
 	metricsCollector *monitoring.MetricsCollector,
+	logger *slog.Logger,
 ) {
 	dbSize, err := store.DBSize()
 	if err != nil {
-		log.Printf("[health] Failed to get DB size: %v", err)
+		logger.Error("Failed to get DB size", slog.Any("error", err))
 		dbSize = 0
 	}
 
 	walSize, err := store.GetWALSize()
 	if err != nil {
-		log.Printf("[health] Failed to get WAL size: %v", err)
+		logger.Error("Failed to get WAL size", slog.Any("error", err))
 		walSize = 0
 	}
 
 	pendingCount, err := store.GetPendingCount(ctx)
 	if err != nil {
-		log.Printf("[health] Failed to get pending count: %v", err)
+		logger.Error("Failed to get pending count", slog.Any("error", err))
 		pendingCount = 0
 	}
 
@@ -441,11 +505,12 @@ func runMetaMetricsLoop(
 	store *storage.SQLiteStorage,
 	metricsCollector *monitoring.MetricsCollector,
 	interval time.Duration,
+	logger *slog.Logger,
 ) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	log.Printf("Meta-metrics collection loop started (interval: %s)", interval)
+	logger.Info("Meta-metrics collection loop started", slog.Duration("interval", interval))
 
 	for {
 		select {
@@ -455,7 +520,7 @@ func runMetaMetricsLoop(
 			// Collect meta-metrics
 			metaMetrics, err := metricsCollector.CollectMetrics(ctx)
 			if err != nil {
-				log.Printf("[meta-metrics] Failed to collect: %v", err)
+				logger.Error("Failed to collect meta-metrics", slog.Any("error", err))
 				continue
 			}
 
@@ -465,11 +530,16 @@ func runMetaMetricsLoop(
 
 			// Store meta-metrics
 			if err := store.StoreBatch(ctx, metaMetrics); err != nil {
-				log.Printf("[meta-metrics] Failed to store %d metrics: %v", len(metaMetrics), err)
+				logger.Error("Failed to store meta-metrics",
+					slog.Int("count", len(metaMetrics)),
+					slog.Any("error", err),
+				)
 				continue
 			}
 
-			log.Printf("[meta-metrics] Collected and stored %d metric(s)", len(metaMetrics))
+			logger.Debug("Meta-metrics collected and stored",
+				slog.Int("count", len(metaMetrics)),
+			)
 		}
 	}
 }
