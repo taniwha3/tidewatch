@@ -37,7 +37,8 @@ type RemoteConfig struct {
 
 // MonitoringConfig contains monitoring and health check settings
 type MonitoringConfig struct {
-	ClockSkewURL string `yaml:"clock_skew_url"` // URL for clock skew detection (e.g., http://localhost:8428/health)
+	ClockSkewURL  string `yaml:"clock_skew_url"`  // URL for clock skew detection (e.g., http://localhost:8428/health)
+	HealthAddress string `yaml:"health_address"`  // Address for health endpoint server (e.g., ":9100")
 }
 
 // UploadInterval parses the upload interval string to time.Duration
