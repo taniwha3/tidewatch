@@ -15,7 +15,7 @@ version: '3.8'
 services:
   # VictoriaMetrics single-node instance
   victoria:
-    image: victoriametrics/victoria-metrics:latest
+    image: victoriametrics/victoria-metrics:v1.97.1  # Pinned version per M2 spec
     container_name: thugshells-victoria
     ports:
       - "8428:8428"  # HTTP API and UI
@@ -27,6 +27,11 @@ services:
       - '--retentionPeriod=30d'  # Keep metrics for 30 days
       - '--maxInsertRequestSize=32MB'  # Allow larger requests
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8428/health"]
       interval: 10s
@@ -51,6 +56,11 @@ services:
     depends_on:
       - victoria
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   victoria-data:
