@@ -93,7 +93,7 @@ func TestUploadMetrics_MarksMetricsAsUploaded(t *testing.T) {
 	mockUpload := &mockUploader{}
 
 	// Upload metrics
-	if err := uploadMetrics(ctx, store, mockUpload); err != nil {
+	if _, err := uploadMetrics(ctx, store, mockUpload); err != nil {
 		t.Fatalf("Upload failed: %v", err)
 	}
 
@@ -113,7 +113,7 @@ func TestUploadMetrics_MarksMetricsAsUploaded(t *testing.T) {
 
 	// Verify second upload attempt returns no metrics
 	mockUpload.uploadedMetrics = nil
-	if err := uploadMetrics(ctx, store, mockUpload); err != nil {
+	if _, err := uploadMetrics(ctx, store, mockUpload); err != nil {
 		t.Fatalf("Second upload failed: %v", err)
 	}
 	if len(mockUpload.uploadedMetrics) != 0 {
@@ -152,7 +152,7 @@ func TestUploadMetrics_DoesNotMarkOnFailure(t *testing.T) {
 	mockUpload := &mockUploader{shouldFail: true}
 
 	// Attempt upload (should fail)
-	if err := uploadMetrics(ctx, store, mockUpload); err == nil {
+	if _, err := uploadMetrics(ctx, store, mockUpload); err == nil {
 		t.Fatal("Expected upload to fail, but it succeeded")
 	}
 
@@ -207,7 +207,7 @@ func TestUploadMetrics_BatchLimit(t *testing.T) {
 	mockUpload := &mockUploader{}
 
 	// First upload should only upload 2500 (batch limit)
-	if err := uploadMetrics(ctx, store, mockUpload); err != nil {
+	if _, err := uploadMetrics(ctx, store, mockUpload); err != nil {
 		t.Fatalf("Upload failed: %v", err)
 	}
 
@@ -226,7 +226,7 @@ func TestUploadMetrics_BatchLimit(t *testing.T) {
 
 	// Second upload should upload remaining 500
 	mockUpload.uploadedMetrics = nil
-	if err := uploadMetrics(ctx, store, mockUpload); err != nil {
+	if _, err := uploadMetrics(ctx, store, mockUpload); err != nil {
 		t.Fatalf("Second upload failed: %v", err)
 	}
 

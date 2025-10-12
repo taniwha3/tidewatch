@@ -161,23 +161,28 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Unit tests: Failed uploads don't mark metrics
 - [x] Unit tests: Batch limit behavior (2500 metric batches)
 
-### Meta-Monitoring (2h)
-- [ ] Create `internal/monitoring/metrics.go`
-- [ ] Implement collector.metrics_collected_total counter
-- [ ] Implement collector.metrics_failed_total counter
-- [ ] Implement collector.collection_duration_seconds histogram
-- [ ] Implement uploader.metrics_uploaded_total counter
-- [ ] Implement uploader.upload_failures_total counter
-- [ ] Implement uploader.upload_duration_seconds histogram
-- [ ] Implement uploader.partial_success_total counter
-- [ ] Implement storage.database_size_bytes gauge
-- [ ] Implement storage.wal_size_bytes gauge
-- [ ] Implement storage.metrics_pending_upload gauge
-- [ ] Implement time.skew_ms gauge
-- [ ] Send meta-metrics to storage/VM
-- [ ] Unit tests: Counter increments
-- [ ] Unit tests: Gauge updates
-- [ ] Unit tests: Histogram recordings
+### Meta-Monitoring (2h) ✅ COMPLETE
+- [x] Create `internal/monitoring/metrics.go`
+- [x] Implement collector.metrics_collected_total counter
+- [x] Implement collector.metrics_failed_total counter
+- [x] Implement collector.collection_duration_seconds histogram (p50, p95, p99)
+- [x] Implement uploader.metrics_uploaded_total counter
+- [x] Implement uploader.upload_failures_total counter
+- [x] Implement uploader.upload_duration_seconds histogram (p50, p95, p99)
+- [ ] Implement uploader.partial_success_total counter (future enhancement)
+- [x] Implement storage.database_size_bytes gauge
+- [x] Implement storage.wal_size_bytes gauge
+- [x] Implement storage.metrics_pending_upload gauge
+- [x] Implement time.skew_ms gauge
+- [x] Send meta-metrics to storage/VM (60s collection interval)
+- [x] Unit tests: Counter increments (11 tests, all passing)
+- [x] Unit tests: Gauge updates (11 tests, all passing)
+- [x] Unit tests: Histogram recordings with percentile calculation (11 tests, all passing)
+- [x] Unit tests: Concurrent access safety (1 test, passing)
+- [x] Integrate into main collector with recording hooks
+- [x] Meta-metrics collection loop at 60-second interval
+- [x] **P1 FIX**: Record success only after storage write succeeds
+- [x] **P1 FIX**: Treat storage failures as collection failures in meta-metrics
 
 ### Enhanced Logging (1-2h)
 - [ ] Migrate from `log` to `log/slog`
@@ -391,8 +396,9 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Uploader status accurate
 - [x] Storage status includes WAL size
 - [x] Time status includes skew_ms
-- [ ] Meta-metrics collecting
-- [ ] Meta-metrics visible in VictoriaMetrics
+- [x] Meta-metrics collecting (60s interval)
+- [x] Meta-metrics generating metrics (11 counter/gauge types + 6 histogram percentiles)
+- [ ] Meta-metrics visible in VictoriaMetrics (needs VM setup)
 
 ### Clock Skew
 - [ ] Clock skew detected on startup
