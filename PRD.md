@@ -944,6 +944,68 @@ sqlite3 /var/lib/belabox-metrics/active/metrics.db "SELECT COUNT(*) FROM metrics
 
 ---
 
+## Known Issues & Technical Debt
+
+### Milestone 1 Issues (To be addressed in Milestone 2)
+
+#### [P1] Duplicate Metric Uploads — `cmd/metrics-collector/main.go:229-253`
+
+**Problem:** The upload loop queries all metrics from the last 5 minutes and uploads them on every cycle without tracking which metrics have been successfully uploaded. This causes:
+- Same metrics re-uploaded multiple times until they age out of the 5-minute window
+- Wasted bandwidth and receiver processing
+- Potential duplicates in the remote database
+- Idempotency violations if the receiver expects each metric exactly once
+
+**Impact:**
+- In a 30-second upload interval: each metric uploaded ~10 times
+- With 2 collectors at 3-5s intervals: ~400-600 duplicate metric uploads per 5 minutes
+- Bandwidth waste: 10x normal upload volume
+
+**Root Cause:**
+```go
+// uploadMetrics queries last 5 minutes WITHOUT tracking upload status
+func uploadMetrics(ctx context.Context, store *storage.SQLiteStorage, upload uploader.Uploader) {
+    endTime := time.Now()
+    startTime := endTime.Add(-5 * time.Minute)
+
+    metrics, err := store.Query(ctx, storage.QueryOptions{
+        StartMs: startTime.UnixMilli(),
+        EndMs:   endTime.UnixMilli(),
+    })
+    // ... uploads metrics but doesn't mark them as uploaded
+}
+```
+
+**Solution for Milestone 2:**
+1. Add `uploaded` field to database schema (already planned in production schema)
+2. Track upload cursor (last successfully uploaded timestamp/rowid)
+3. Either:
+   - **Option A (Recommended):** Delete metrics immediately after successful upload
+   - **Option B:** Mark as uploaded and delete during retention cleanup
+   - **Option C:** Use upload checkpoint table (already in production schema)
+
+**Implementation:**
+```go
+// Query only unuploaded metrics
+metrics, err := store.Query(ctx, storage.QueryOptions{
+    StartMs: lastCheckpoint.UnixMilli(),
+    Uploaded: false,  // New filter
+    Limit: 500,
+})
+
+// After successful upload
+if err := upload.Upload(ctx, metrics); err == nil {
+    // Mark as uploaded or delete
+    store.MarkUploaded(ctx, metrics)
+}
+```
+
+**Priority:** P1 - Critical for production use. Must be fixed in Milestone 2 before deploying at scale.
+
+**Workaround (M1):** Acceptable for development/testing with low upload frequency and local receiver.
+
+---
+
 ## Success Criteria
 
 **MVP Success (Day 3):**
