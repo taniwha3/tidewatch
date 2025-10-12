@@ -4,27 +4,28 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 
 ## Day 1: Database + Upload Fix (7-9 hours)
 
-### Database Schema Migration (2-3h)
-- [ ] Create `internal/storage/migration.go`
-- [ ] Implement `GetSchemaVersion()` function
-- [ ] Implement `Migrate()` function
-- [ ] Migration v1→v2: Add new columns (value_text, value_type, tags, session_id, uploaded, priority, dedup_key)
-- [ ] Migration v1→v2: Create sessions table
-- [ ] Migration v1→v2: Create upload_checkpoints table
-- [ ] Migration v1→v2: Create new indexes including unique index on dedup_key
-- [ ] Migration v1→v2: Backfill dedup_key for existing rows
-- [ ] Unit tests: v1→v2 migration
-- [ ] Unit tests: Migration idempotency
-- [ ] Unit tests: Migration error cases
+### Database Schema Migration (2-3h) ✅ COMPLETE
+- [x] Create `internal/storage/migration.go` (already exists in storage.go)
+- [x] Implement `GetSchemaVersion()` function
+- [x] Implement `Migrate()` function
+- [x] Migration v4: Add new columns (value_text, value_type for string metrics)
+- [x] Migration v4: Create sessions table
+- [x] Migration v2: Create upload_checkpoints table (already done)
+- [x] Migration v2: Create new indexes including unique index on dedup_key (already done)
+- [x] Migration v5: Regenerate ALL dedup_keys with new format (backwards compatibility fix)
+- [x] Unit tests: v1→v5 migrations
+- [x] Unit tests: Migration idempotency
+- [x] Unit tests: Migration error cases
 
-### Dedup Key Generation (1h)
-- [ ] Add `GenerateDedupKey()` method to `models.Metric`
-- [ ] Implement `CanonicalizeTags()` for consistent tag ordering
-- [ ] Implement SHA256 hashing for dedup key
-- [ ] Add `Finalize()` method to generate dedup key before storage
-- [ ] Unit tests: Dedup key consistency
-- [ ] Unit tests: Collision resistance
-- [ ] Unit tests: Value type changes force new dedup key
+### Dedup Key Generation (1h) ✅ COMPLETE
+- [x] Add `GenerateDedupKey()` method to `models.Metric` (already exists in storage.go)
+- [x] Implement canonical tag ordering for consistent hashing
+- [x] Implement SHA256 hashing for dedup key
+- [x] Include ValueType in dedup key to prevent type-change collisions
+- [x] Unit tests: Dedup key consistency
+- [x] Unit tests: Collision resistance
+- [x] Unit tests: Value type changes force new dedup key
+- [x] Unit tests: Migration v5 regenerates dedup keys correctly
 
 ### Chunked Upload Strategy (2-3h)
 - [ ] Modify upload loop to use chunks (50 metrics each)
@@ -301,16 +302,19 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 ## Final Acceptance Checklist
 
 ### Database & Storage
-- [ ] Schema migration from M1 to M2 succeeds
-- [ ] dedup_key field added with unique index
-- [ ] Same metrics retried → UNIQUE constraint error (no duplicates)
-- [ ] uploaded field added and indexed
-- [ ] upload_checkpoints table created with batch tracking
-- [ ] MarkUploaded() updates metrics correctly
-- [ ] GetUnuploadedMetrics() returns only unuploaded
+- [x] Schema migration from M1 to M2 succeeds (migrations v4, v5)
+- [x] dedup_key field added with unique index
+- [x] Value type field added (value_text, value_type)
+- [x] Sessions table created
+- [x] Same metrics retried → UNIQUE constraint error (no duplicates)
+- [x] Dedup keys regenerated with new format (backwards compatible)
+- [x] uploaded field added and indexed (already done in v2)
+- [x] upload_checkpoints table created with batch tracking (already done in v2)
+- [x] MarkUploaded() updates metrics correctly
+- [x] GetUnuploadedMetrics() returns only unuploaded
 - [ ] Checkpoint tracking persists across restarts
-- [ ] WAL checkpoint routine runs hourly
-- [ ] WAL size stays <64 MB under load
+- [x] WAL checkpoint routine implemented (CheckpointWAL, GetWALSize)
+- [ ] WAL size stays <64 MB under load (needs background routine)
 
 ### Upload Fix
 - [ ] No duplicate uploads in 30-minute test
