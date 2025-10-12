@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -835,6 +836,144 @@ func (s *SQLiteStorage) GetWALSize() (int64, error) {
 	}
 
 	return info.Size(), nil
+}
+
+// StartWALCheckpointRoutine starts a background goroutine that periodically
+// checkpoints the WAL to prevent unbounded growth. It checkpoints:
+// - Every hour (configurable via checkpointInterval)
+// - When WAL size exceeds maxWALSize (default 64 MB), checked every 30 seconds
+// Call the returned cancel function to stop the routine gracefully.
+func (s *SQLiteStorage) StartWALCheckpointRoutine(ctx context.Context, logger *slog.Logger, checkpointInterval time.Duration, maxWALSize int64) context.CancelFunc {
+	return s.startWALCheckpointRoutineWithSizeInterval(ctx, logger, checkpointInterval, maxWALSize, 30*time.Second)
+}
+
+// startWALCheckpointRoutineWithSizeInterval is the internal implementation that allows
+// configuring the size check interval (useful for testing)
+func (s *SQLiteStorage) startWALCheckpointRoutineWithSizeInterval(ctx context.Context, logger *slog.Logger, checkpointInterval time.Duration, maxWALSize int64, sizeCheckInterval time.Duration) context.CancelFunc {
+	if checkpointInterval == 0 {
+		checkpointInterval = 1 * time.Hour
+	}
+	if maxWALSize == 0 {
+		maxWALSize = 64 * 1024 * 1024 // 64 MB default
+	}
+	if sizeCheckInterval == 0 {
+		sizeCheckInterval = 30 * time.Second
+	}
+
+	routineCtx, cancel := context.WithCancel(ctx)
+
+	go func() {
+		ticker := time.NewTicker(checkpointInterval)
+		defer ticker.Stop()
+
+		logger.Info("WAL checkpoint routine started",
+			slog.Duration("interval", checkpointInterval),
+			slog.Int64("max_wal_size_mb", maxWALSize/(1024*1024)),
+			slog.Duration("size_check_interval", sizeCheckInterval),
+		)
+
+		// Check WAL size immediately on startup (before first ticker fires)
+		// This handles cases where the process starts with an already-large WAL
+		// (e.g., after a crash or unusually busy run)
+		walSize, err := s.GetWALSize()
+		if err != nil {
+			logger.Error("Failed to get initial WAL size",
+				slog.Any("error", err),
+			)
+		} else if walSize > maxWALSize {
+			logger.Warn("WAL size exceeds threshold on startup, triggering immediate checkpoint",
+				slog.Int64("wal_size_mb", walSize/(1024*1024)),
+				slog.Int64("threshold_mb", maxWALSize/(1024*1024)),
+			)
+			s.performCheckpoint(logger, "startup-size-triggered")
+		}
+
+		// Create a separate ticker for size checks
+		// This ensures we react quickly to WAL growth without waiting for periodic checkpoint
+		sizeTicker := time.NewTicker(sizeCheckInterval)
+		defer sizeTicker.Stop()
+
+		for {
+			select {
+			case <-routineCtx.Done():
+				logger.Info("WAL checkpoint routine stopping")
+				return
+			case <-ticker.C:
+				// Periodic checkpoint (hourly by default)
+				s.performCheckpoint(logger, "periodic")
+			case <-sizeTicker.C:
+				// Check WAL size and trigger emergency checkpoint if needed
+				walSize, err := s.GetWALSize()
+				if err != nil {
+					logger.Error("Failed to get WAL size",
+						slog.Any("error", err),
+					)
+					continue
+				}
+
+				if walSize > maxWALSize {
+					logger.Warn("WAL size exceeds threshold, triggering emergency checkpoint",
+						slog.Int64("wal_size_mb", walSize/(1024*1024)),
+						slog.Int64("threshold_mb", maxWALSize/(1024*1024)),
+					)
+					s.performCheckpoint(logger, "size-triggered")
+				}
+			}
+		}
+	}()
+
+	return cancel
+}
+
+// performCheckpoint executes a WAL checkpoint and logs the results
+func (s *SQLiteStorage) performCheckpoint(logger *slog.Logger, reason string) {
+	// Get WAL size before checkpoint
+	walSizeBefore, err := s.GetWALSize()
+	if err != nil {
+		logger.Error("Failed to get WAL size before checkpoint",
+			slog.String("reason", reason),
+			slog.Any("error", err),
+		)
+		return
+	}
+
+	// Perform checkpoint
+	startTime := time.Now()
+	ctx := context.Background()
+	err = s.CheckpointWAL(ctx)
+	duration := time.Since(startTime)
+
+	if err != nil {
+		logger.Error("WAL checkpoint failed",
+			slog.String("reason", reason),
+			slog.Int64("duration_ms", duration.Milliseconds()),
+			slog.Any("error", err),
+		)
+		return
+	}
+
+	// Get WAL size after checkpoint
+	walSizeAfter, err := s.GetWALSize()
+	if err != nil {
+		logger.Warn("Failed to get WAL size after checkpoint",
+			slog.String("reason", reason),
+			slog.Any("error", err),
+		)
+		walSizeAfter = 0
+	}
+
+	bytesReclaimed := walSizeBefore - walSizeAfter
+	if bytesReclaimed < 0 {
+		bytesReclaimed = 0
+	}
+
+	logger.Info("WAL checkpoint completed",
+		slog.String("reason", reason),
+		slog.Int64("duration_ms", duration.Milliseconds()),
+		slog.Int64("wal_size_before_mb", walSizeBefore/(1024*1024)),
+		slog.Int64("wal_size_after_mb", walSizeAfter/(1024*1024)),
+		slog.Int64("bytes_reclaimed_kb", bytesReclaimed/1024),
+	)
 }
 
 // Close closes the database connection

@@ -84,6 +84,15 @@ func main() {
 	defer store.Close()
 	logger.Info("Storage initialized")
 
+	// Start WAL checkpoint routine
+	// Context for WAL checkpoint routine (separate from main context for shutdown control)
+	walCtx, walCancel := context.WithCancel(context.Background())
+	defer walCancel()
+
+	// Start WAL checkpoint routine with 1 hour interval and 64 MB threshold
+	cancelWAL := store.StartWALCheckpointRoutine(walCtx, logger, 1*time.Hour, 64*1024*1024)
+	defer cancelWAL()
+
 	// Initialize meta-metrics collector
 	metricsCollector := monitoring.NewMetricsCollector(cfg.Device.ID)
 	logger.Info("Meta-metrics collector initialized")

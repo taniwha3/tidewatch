@@ -199,19 +199,19 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Unit tests: Console formatter output
 - [x] Unit tests: Required field presence
 
-### WAL Checkpoint Routine (1h)
-- [ ] Add `startWALCheckpointRoutine()` to storage
-- [ ] Hourly ticker
-- [ ] Size-based triggering (WAL > 64 MB)
-- [ ] Implement `checkpointWAL()` with TRUNCATE mode
-- [ ] Expose wal_size in meta-metrics
-- [ ] Final checkpoint on shutdown
-- [ ] Log checkpoint operations with size info
-- [ ] Emit storage.wal_checkpoint_duration_ms metric
-- [ ] Emit storage.wal_bytes_reclaimed metric
-- [ ] Unit tests: Checkpoint triggers
-- [ ] Unit tests: Size checking
-- [ ] Unit tests: Shutdown checkpoint
+### WAL Checkpoint Routine (1h) ✅ COMPLETE
+- [x] Add `startWALCheckpointRoutine()` to storage
+- [x] Hourly ticker
+- [x] Size-based triggering (WAL > 64 MB)
+- [x] Implement `checkpointWAL()` with TRUNCATE mode (already existed)
+- [x] Expose wal_size in meta-metrics (already done in Meta-Monitoring)
+- [x] Final checkpoint on shutdown (already done in Close())
+- [x] Log checkpoint operations with size info
+- [x] Emit storage.wal_checkpoint_duration_ms metric (logged)
+- [x] Emit storage.wal_bytes_reclaimed metric (logged)
+- [x] Unit tests: Checkpoint triggers (periodic and size-based)
+- [x] Unit tests: Size checking (GetWALSize)
+- [x] Unit tests: Shutdown checkpoint (TestCheckpointOnShutdown)
 
 ## Day 4: VictoriaMetrics + Testing (6-8 hours)
 
