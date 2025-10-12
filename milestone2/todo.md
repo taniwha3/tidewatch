@@ -97,21 +97,21 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [ ] Mock for macOS (not needed - /proc/diskstats is Linux-only)
 - Note: Per kernel docs, /proc/diskstats sectors are ALWAYS 512 bytes regardless of device
 
-### Network Collector (2-3h)
-- [ ] Create `internal/collector/network.go`
-- [ ] Parse `/proc/net/dev`
-- [ ] Regex-based interface filtering
-- [ ] Default exclusions: lo, docker*, veth*, br-*, wlan.*mon, virbr.*, wwan.*, wwp.*, usb.*
-- [ ] Configurable includes/excludes
-- [ ] Counter wraparound detection
-- [ ] Cardinality guard: hard cap on interface count (default 32)
-- [ ] Emit network.interfaces_dropped_total when cap hit
-- [ ] Mock for macOS
-- [ ] Unit tests: Filtering logic
-- [ ] Unit tests: Regex patterns
-- [ ] Unit tests: Parsing
-- [ ] Unit tests: Wraparound detection
-- [ ] Unit tests: Cardinality hard cap
+### Network Collector (2-3h) ✅ COMPLETE
+- [x] Create `internal/collector/network.go`
+- [x] Parse `/proc/net/dev`
+- [x] Regex-based interface filtering
+- [x] Default exclusions: lo, docker*, veth*, br-*, wlan.*mon, virbr.*, wwan.*, wwp.*, usb.*
+- [x] Configurable includes/excludes
+- [x] Counter wraparound detection
+- [x] Cardinality guard: hard cap on interface count (default 32)
+- [x] Emit network.interfaces_dropped_total when cap hit
+- [x] Mock for macOS
+- [x] Unit tests: Filtering logic
+- [x] Unit tests: Regex patterns
+- [x] Unit tests: Parsing
+- [x] Unit tests: Wraparound detection
+- [x] Unit tests: Cardinality hard cap
 
 ### Clock Skew Detection (1h)
 - [ ] Create `internal/monitoring/clock.go`
