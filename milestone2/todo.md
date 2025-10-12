@@ -27,19 +27,19 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Unit tests: Value type changes force new dedup key
 - [x] Unit tests: Migration v5 regenerates dedup keys correctly
 
-### Chunked Upload Strategy (2-3h)
-- [ ] Modify upload loop to use chunks (50 metrics each)
-- [ ] Generate batch_id (UUID) for tracking
-- [ ] Sort metrics by timestamp within chunk
-- [ ] Implement JSONL building for VictoriaMetrics format
-- [ ] Add gzip compression (BestSpeed for ARM efficiency)
-- [ ] Configure HTTP transport with connection pooling (MaxIdleConns=8)
-- [ ] Target 128-256 KB gzipped payload per chunk
-- [ ] Implement byte-size limiting (256 KB max)
-- [ ] Unit tests: Chunking logic
-- [ ] Unit tests: Timestamp sorting
-- [ ] Unit tests: Gzip compression
-- [ ] Unit tests: Byte-size limits
+### Chunked Upload Strategy (2-3h) ✅ COMPLETE
+- [x] Modify upload loop to use chunks (50 metrics each)
+- [x] Generate batch_id (UUID) for tracking (in uploader.go)
+- [x] Sort metrics by timestamp within chunk
+- [x] Implement JSONL building for VictoriaMetrics format
+- [x] Add gzip compression (BestSpeed for ARM efficiency)
+- [x] Configure HTTP transport with connection pooling (MaxIdleConns=10)
+- [x] Target 128-256 KB gzipped payload per chunk
+- [x] Implement byte-size limiting (256 KB max with automatic bisecting)
+- [x] Unit tests: Chunking logic
+- [x] Unit tests: Timestamp sorting
+- [x] Unit tests: Gzip compression
+- [x] Unit tests: Byte-size limits
 
 ### Partial Success Handling (1-2h)
 - [ ] Simplified strategy: 2xx = mark entire chunk as uploaded

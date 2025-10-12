@@ -125,11 +125,17 @@ func BuildVMJSONL(metrics []*models.Metric) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// CompressGzip compresses data using gzip
+// CompressGzip compresses data using gzip with BestSpeed for ARM efficiency
+// Per M2 spec: Use gzip.BestSpeed for optimal performance on ARM SBCs
 func CompressGzip(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
 
-	gzipWriter := gzip.NewWriter(&buf)
+	// Use BestSpeed for ARM SBC optimization (reduces CPU load with minimal size penalty)
+	gzipWriter, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+	if err != nil {
+		return nil, fmt.Errorf("gzip writer creation failed: %w", err)
+	}
+
 	if _, err := gzipWriter.Write(data); err != nil {
 		return nil, fmt.Errorf("gzip write failed: %w", err)
 	}
