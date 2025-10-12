@@ -1,0 +1,28 @@
+device:
+  id: belabox-001
+
+storage:
+  path: /var/lib/belabox-metrics/metrics.db
+
+remote:
+  url: http://localhost:8080/api/metrics
+  enabled: true
+  upload_interval: 30s
+
+metrics:
+  - name: cpu.temperature
+    interval: 30s
+    enabled: true
+
+  - name: srt.packet_loss
+    interval: 5s
+    enabled: true
+
+  # Bonus metrics (disabled for M1)
+  - name: cpu.usage
+    interval: 30s
+    enabled: false
+
+  - name: memory.available
+    interval: 30s
+    enabled: false

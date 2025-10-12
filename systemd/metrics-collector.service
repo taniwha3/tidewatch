@@ -1,0 +1,33 @@
+[Unit]
+Description=Belabox Metrics Collector
+Documentation=https://github.com/taniwha3/thugshells
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/metrics-collector -config /etc/belabox-metrics/config.yaml
+
+# Restart policy
+Restart=always
+RestartSec=10s
+
+# Resource limits (for embedded device)
+MemoryLimit=300M
+CPUQuota=15%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=metrics-collector
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/belabox-metrics
+
+[Install]
+WantedBy=multi-user.target

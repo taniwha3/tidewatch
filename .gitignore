@@ -5,9 +5,10 @@ bin/
 *.dll
 *.so
 *.dylib
-metrics-collector
-metrics-receiver
+/metrics-collector
+/metrics-receiver
 metrics-collector-*
+metrics-receiver-*
 
 # Build artifacts
 dist/
@@ -42,9 +43,9 @@ Thumbs.db
 *.db-shm
 *.log
 
-# Config with secrets
-/configs/config.yaml
-!/configs/config.yaml.example
+# Config with secrets (example config is safe to commit)
+# /configs/config.yaml
+# !/configs/config.yaml.example
 
 # Specstory
 .specstory/
