@@ -10,10 +10,11 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	Device  DeviceConfig  `yaml:"device"`
-	Storage StorageConfig `yaml:"storage"`
-	Remote  RemoteConfig  `yaml:"remote"`
-	Metrics []MetricConfig `yaml:"metrics"`
+	Device     DeviceConfig     `yaml:"device"`
+	Storage    StorageConfig    `yaml:"storage"`
+	Remote     RemoteConfig     `yaml:"remote"`
+	Monitoring MonitoringConfig `yaml:"monitoring"`
+	Metrics    []MetricConfig   `yaml:"metrics"`
 }
 
 // DeviceConfig contains device identification
@@ -31,6 +32,12 @@ type RemoteConfig struct {
 	URL               string `yaml:"url"`
 	Enabled           bool   `yaml:"enabled"`
 	UploadIntervalStr string `yaml:"upload_interval"`
+	AuthToken         string `yaml:"auth_token"` // Bearer token for authentication
+}
+
+// MonitoringConfig contains monitoring and health check settings
+type MonitoringConfig struct {
+	ClockSkewURL string `yaml:"clock_skew_url"` // URL for clock skew detection (e.g., http://localhost:8428/health)
 }
 
 // UploadInterval parses the upload interval string to time.Duration
