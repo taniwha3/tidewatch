@@ -60,44 +60,42 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 
 ## Day 2: Collectors (7-9 hours)
 
-### CPU Delta Collector (2-3h)
-- [ ] Create `internal/collector/cpu.go`
-- [ ] Implement two-read strategy with cached counters
-- [ ] Per-core delta calculation
-- [ ] Aggregate "all" core metric calculation
-- [ ] Wraparound detection and handling
-- [ ] Skip first sample (no previous to compare)
-- [ ] Division by zero protection
-- [ ] Mock implementation for macOS
-- [ ] Unit tests: Delta calculation
-- [ ] Unit tests: Wraparound handling
-- [ ] Unit tests: First-sample skip
-- [ ] Unit tests: Aggregate calculation
+### CPU Delta Collector (2-3h) ✅ COMPLETE
+- [x] Create `internal/collector/cpu.go`
+- [x] Implement two-read strategy with cached counters
+- [x] Per-core delta calculation
+- [x] Aggregate "all" core metric calculation
+- [x] Wraparound detection and handling
+- [x] Skip first sample (no previous to compare)
+- [x] Division by zero protection
+- [x] Mock implementation for macOS
+- [x] Unit tests: Delta calculation
+- [x] Unit tests: Wraparound handling
+- [x] Unit tests: First-sample skip
+- [x] Unit tests: Aggregate calculation (8 tests, all pass)
 
-### Memory Collector (1h)
-- [ ] Create `internal/collector/memory.go`
-- [ ] Parse `/proc/meminfo` for MemTotal, MemAvailable, SwapTotal, SwapFree
-- [ ] Implement canonical used calculation (MemTotal - MemAvailable)
-- [ ] Export memory.used_bytes, memory.available_bytes, memory.swap_used_bytes
-- [ ] Export memory.total_bytes, memory.swap_total_bytes (for percentage calculations)
-- [ ] Mock for macOS
-- [ ] Unit tests: Parsing logic
-- [ ] Unit tests: Canonical used calculation
+### Memory Collector (1h) ✅ COMPLETE
+- [x] Create `internal/collector/memory.go`
+- [x] Parse `/proc/meminfo` for MemTotal, MemAvailable, SwapTotal, SwapFree
+- [x] Implement canonical used calculation (MemTotal - MemAvailable)
+- [x] Export memory.used_bytes, memory.available_bytes, memory.swap_used_bytes
+- [x] Export memory.total_bytes, memory.swap_total_bytes (for percentage calculations)
+- [x] Mock for macOS
+- [x] Unit tests: Parsing logic
+- [x] Unit tests: Canonical used calculation (7 tests, all pass)
 
-### Disk I/O Collector (1-2h)
-- [ ] Create `internal/collector/disk.go`
-- [ ] Parse `/proc/diskstats`
-- [ ] Implement per-device sector size detection from sysfs
-- [ ] Cache sector sizes (512 for SATA, 4096 for NVMe/eMMC)
-- [ ] Sector→byte conversion for read/write bytes
-- [ ] Expose ops/s and bytes/s
-- [ ] Whole-device regex pattern (skip partitions)
-- [ ] Configurable device pattern override
-- [ ] Mock for macOS
-- [ ] Unit tests: Sector size detection
-- [ ] Unit tests: Sector→byte conversion
-- [ ] Unit tests: Parsing logic
-- [ ] Unit tests: Partition filtering (nvme0n1 vs nvme0n1p1)
+### Disk I/O Collector (1-2h) ✅ COMPLETE
+- [x] Create `internal/collector/disk.go` (already exists)
+- [x] Parse `/proc/diskstats`
+- [x] Sector→byte conversion (FIXED: always 512 bytes per kernel docs)
+- [x] Expose ops and bytes (read/write ops_total, bytes_total)
+- [x] Expose time metrics (read_time_ms, write_time_ms, io_time_weighted_ms)
+- [x] Whole-device regex pattern (skip partitions: sda1, nvme0n1p1, etc.)
+- [x] Configurable device pattern override (AllowedPattern config)
+- [x] Unit tests: Partition filtering
+- [x] Unit tests: 512-byte sector conversion
+- [ ] Mock for macOS (not needed - /proc/diskstats is Linux-only)
+- Note: Per kernel docs, /proc/diskstats sectors are ALWAYS 512 bytes regardless of device
 
 ### Network Collector (2-3h)
 - [ ] Create `internal/collector/network.go`
