@@ -173,6 +173,33 @@ func migrateSchema(db *sql.DB) error {
 				-- NOTE: This migration is executed via migrateV3Backfill() due to custom logic needs
 			`,
 		},
+		{
+			version: 4,
+			sql: `
+				-- M2: Add support for string metrics
+				ALTER TABLE metrics ADD COLUMN value_text TEXT;
+				ALTER TABLE metrics ADD COLUMN value_type INTEGER NOT NULL DEFAULT 0;
+
+				-- M2: Create sessions table for session tracking
+				CREATE TABLE IF NOT EXISTS sessions (
+					id TEXT PRIMARY KEY,
+					start_time INTEGER NOT NULL,
+					end_time INTEGER,
+					status TEXT,
+					metadata TEXT
+				);
+
+				CREATE INDEX IF NOT EXISTS idx_session_start ON sessions(start_time);
+			`,
+		},
+		{
+			version: 5,
+			sql: `
+				-- M2: Regenerate all dedup_keys to include value_type
+				-- This ensures deduplication continues to work after adding value_type field
+				-- NOTE: This migration is executed via migrateV5RegenerateDedupKeys() due to custom logic needs
+			`,
+		},
 	}
 
 	for _, migration := range migrations {
@@ -196,6 +223,14 @@ func migrateSchema(db *sql.DB) error {
 				}
 			}
 
+			// V5 migration regenerates dedup_keys with new format including value_type
+			if migration.version == 5 {
+				if err := migrateV5RegenerateDedupKeys(tx); err != nil {
+					tx.Rollback()
+					return fmt.Errorf("failed to regenerate dedup_keys in migration 5: %w", err)
+				}
+			}
+
 			// Record migration
 			if _, err := tx.Exec("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
 				migration.version, time.Now().Unix()); err != nil {
@@ -208,6 +243,76 @@ func migrateSchema(db *sql.DB) error {
 			}
 		}
 	}
+
+	return nil
+}
+
+// migrateV5RegenerateDedupKeys regenerates all dedup_keys to include value_type
+// This fixes backwards compatibility after adding value_type to the dedup key format
+func migrateV5RegenerateDedupKeys(tx *sql.Tx) error {
+	// Query ALL metrics to regenerate their dedup_keys with the new format
+	rows, err := tx.Query(`
+		SELECT id, timestamp_ms, metric_name, device_id, value_type, tags_json
+		FROM metrics
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to query metrics for dedup_key regeneration: %w", err)
+	}
+	defer rows.Close()
+
+	// Prepare update statement
+	stmt, err := tx.Prepare("UPDATE metrics SET dedup_key = ? WHERE id = ?")
+	if err != nil {
+		return fmt.Errorf("failed to prepare update statement: %w", err)
+	}
+	defer stmt.Close()
+
+	// Process each metric and regenerate dedup_key
+	count := 0
+	for rows.Next() {
+		var id int64
+		var timestampMs int64
+		var metricName, deviceID string
+		var valueType int
+		var tagsJSON sql.NullString
+
+		if err := rows.Scan(&id, &timestampMs, &metricName, &deviceID, &valueType, &tagsJSON); err != nil {
+			return fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Reconstruct metric for dedup key generation
+		metric := &models.Metric{
+			Name:        metricName,
+			TimestampMs: timestampMs,
+			DeviceID:    deviceID,
+			ValueType:   models.ValueType(valueType),
+			Tags:        make(map[string]string),
+		}
+
+		// Deserialize tags if present
+		if tagsJSON.Valid && tagsJSON.String != "" {
+			if err := json.Unmarshal([]byte(tagsJSON.String), &metric.Tags); err != nil {
+				return fmt.Errorf("failed to unmarshal tags for metric %d: %w", id, err)
+			}
+		}
+
+		// Generate NEW dedup key using current format (includes value_type)
+		dedupKey := generateDedupKey(metric)
+
+		// Update the row
+		if _, err := stmt.Exec(dedupKey, id); err != nil {
+			return fmt.Errorf("failed to update dedup_key for metric %d: %w", id, err)
+		}
+
+		count++
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	// Log migration progress (will be visible if run with logging enabled)
+	fmt.Printf("Migration v5: Regenerated dedup_keys for %d metrics\n", count)
 
 	return nil
 }
@@ -286,7 +391,8 @@ func generateSessionID() string {
 
 // generateDedupKey creates a unique deduplication key for a metric
 // Uses JSON encoding to avoid delimiter collisions
-// Format: sha256(json({name, timestamp_ms, device_id, tags}))
+// Format: sha256(json({name, timestamp_ms, device_id, tags, value_type}))
+// Including value_type prevents collisions when a metric changes type (e.g., gauge→error string)
 func generateDedupKey(metric *models.Metric) string {
 	// Create a canonical structure for hashing
 	// Using a struct ensures consistent field ordering
@@ -295,6 +401,7 @@ func generateDedupKey(metric *models.Metric) string {
 		TimestampMs int64             `json:"timestamp_ms"`
 		DeviceID    string            `json:"device_id"`
 		Tags        map[string]string `json:"tags"`
+		ValueType   models.ValueType  `json:"value_type"` // Prevents type-change collisions
 	}
 
 	// Sort tags into a new map for canonical ordering
@@ -314,6 +421,7 @@ func generateDedupKey(metric *models.Metric) string {
 		TimestampMs: metric.TimestampMs,
 		DeviceID:    metric.DeviceID,
 		Tags:        sortedTags,
+		ValueType:   metric.ValueType,
 	}
 
 	// Marshal to JSON (which handles escaping properly)
@@ -362,10 +470,10 @@ func (s *SQLiteStorage) StoreBatch(ctx context.Context, metrics []*models.Metric
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO metrics (
-			timestamp_ms, metric_name, metric_value, device_id,
-			uploaded, priority, session_id, dedup_key, tags_json
+			timestamp_ms, metric_name, metric_value, value_text, value_type,
+			device_id, uploaded, priority, session_id, dedup_key, tags_json
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (dedup_key) DO NOTHING
 	`)
 	if err != nil {
@@ -384,6 +492,8 @@ func (s *SQLiteStorage) StoreBatch(ctx context.Context, metrics []*models.Metric
 			metric.TimestampMs,
 			metric.Name,
 			metric.Value,
+			metric.ValueText,
+			int(metric.ValueType),
 			metric.DeviceID,
 			0,          // uploaded = false
 			1,          // priority = normal
@@ -405,7 +515,7 @@ func (s *SQLiteStorage) StoreBatch(ctx context.Context, metrics []*models.Metric
 
 // Query retrieves metrics within a time range
 func (s *SQLiteStorage) Query(ctx context.Context, opts QueryOptions) ([]*models.Metric, error) {
-	query := "SELECT id, timestamp_ms, metric_name, metric_value, device_id, tags_json FROM metrics WHERE 1=1"
+	query := "SELECT id, timestamp_ms, metric_name, metric_value, value_text, value_type, device_id, tags_json FROM metrics WHERE 1=1"
 	args := []interface{}{}
 
 	if opts.StartMs > 0 {
@@ -447,6 +557,8 @@ func (s *SQLiteStorage) Query(ctx context.Context, opts QueryOptions) ([]*models
 			Tags: make(map[string]string),
 		}
 		var tagsJSON sql.NullString
+		var valueText sql.NullString
+		var valueType int
 		var id int64
 
 		err := rows.Scan(
@@ -454,12 +566,20 @@ func (s *SQLiteStorage) Query(ctx context.Context, opts QueryOptions) ([]*models
 			&m.TimestampMs,
 			&m.Name,
 			&m.Value,
+			&valueText,
+			&valueType,
 			&m.DeviceID,
 			&tagsJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
+
+		// Set value_text and value_type
+		if valueText.Valid {
+			m.ValueText = valueText.String
+		}
+		m.ValueType = models.ValueType(valueType)
 
 		// Deserialize tags if present
 		if tagsJSON.Valid && tagsJSON.String != "" {
@@ -481,7 +601,7 @@ func (s *SQLiteStorage) Query(ctx context.Context, opts QueryOptions) ([]*models
 // QueryUnuploaded retrieves metrics that haven't been uploaded yet
 func (s *SQLiteStorage) QueryUnuploaded(ctx context.Context, limit int) ([]*models.Metric, error) {
 	query := `
-		SELECT id, timestamp_ms, metric_name, metric_value, device_id, tags_json
+		SELECT id, timestamp_ms, metric_name, metric_value, value_text, value_type, device_id, tags_json
 		FROM metrics
 		WHERE uploaded = 0
 		ORDER BY priority DESC, timestamp_ms ASC
@@ -505,6 +625,8 @@ func (s *SQLiteStorage) QueryUnuploaded(ctx context.Context, limit int) ([]*mode
 			Tags: make(map[string]string),
 		}
 		var tagsJSON sql.NullString
+		var valueText sql.NullString
+		var valueType int
 		var id int64
 
 		err := rows.Scan(
@@ -512,12 +634,20 @@ func (s *SQLiteStorage) QueryUnuploaded(ctx context.Context, limit int) ([]*mode
 			&m.TimestampMs,
 			&m.Name,
 			&m.Value,
+			&valueText,
+			&valueType,
 			&m.DeviceID,
 			&tagsJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
+
+		// Set value_text and value_type
+		if valueText.Valid {
+			m.ValueText = valueText.String
+		}
+		m.ValueType = models.ValueType(valueType)
 
 		// Store ID in tags for tracking
 		if m.Tags == nil {

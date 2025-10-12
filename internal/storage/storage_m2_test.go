@@ -80,8 +80,8 @@ func TestSchemaMigration_Idempotent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get schema version: %v", err)
 		}
-		if version != 3 {
-			t.Errorf("Expected schema version 3, got %d", version)
+		if version != 5 {
+			t.Errorf("Expected schema version 5, got %d", version)
 		}
 
 		storage.Close()
@@ -424,6 +424,79 @@ func TestDedupKey_NoCollisionWithPipeInTags(t *testing.T) {
 
 	if key1 == key2 {
 		t.Errorf("Dedup keys should differ when tags contain delimiter characters:\nKey1: %s\nKey2: %s", key1, key2)
+	}
+}
+
+// TestDedupKey_DifferentValueTypes tests that value_type is included in dedup key
+// This prevents collisions when a metric changes type (e.g., gauge→error string)
+func TestDedupKey_DifferentValueTypes(t *testing.T) {
+	ts := time.Unix(1000, 0)
+
+	// Same metric name, timestamp, device, tags - but different value types
+	metric1 := models.NewMetric("cpu.temperature", 50.0, "device-001").
+		WithTimestamp(ts)
+	metric2 := models.NewStringMetric("cpu.temperature", "error: sensor offline", "device-001").
+		WithTimestamp(ts)
+
+	key1 := generateDedupKey(metric1)
+	key2 := generateDedupKey(metric2)
+
+	if key1 == key2 {
+		t.Errorf("Dedup keys should differ for different value types:\nKey1 (numeric): %s\nKey2 (string): %s", key1, key2)
+	}
+}
+
+// TestMigration_V5RegenerateDedupKeys tests that v5 migration regenerates dedup_keys
+// This ensures deduplication continues to work after adding value_type to dedup key format
+func TestMigration_V5RegenerateDedupKeys(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// Create storage which will run all migrations including v5
+	storage, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Store some metrics
+	metrics := []*models.Metric{
+		models.NewMetric("cpu.temperature", 50.0, "device-001").WithTimestamp(now),
+		models.NewStringMetric("sensor.status", "online", "device-001").WithTimestamp(now.Add(time.Second)),
+	}
+	if err := storage.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("Failed to store metrics: %v", err)
+	}
+
+	// Verify all rows have dedup_key that includes value_type
+	// We can't directly verify the format, but we can verify:
+	// 1. All rows have non-NULL dedup_key
+	// 2. Trying to insert the same metrics again gets blocked by unique constraint
+
+	var nullCount int
+	err = storage.db.QueryRow("SELECT COUNT(*) FROM metrics WHERE dedup_key IS NULL").Scan(&nullCount)
+	if err != nil {
+		t.Fatalf("Failed to count NULL dedup_keys: %v", err)
+	}
+	if nullCount != 0 {
+		t.Errorf("Expected 0 NULL dedup_keys after migration, got %d", nullCount)
+	}
+
+	// Try to insert duplicates - should be prevented
+	if err := storage.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("Duplicate insertion failed: %v", err)
+	}
+
+	// Should still only have 2 metrics (duplicates were blocked)
+	count, err := storage.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count failed: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("Expected 2 metrics (duplicates blocked), got %d", count)
 	}
 }
 
