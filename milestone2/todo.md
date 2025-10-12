@@ -49,14 +49,14 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [ ] Unit tests: Partial ack scenarios
 - [ ] Unit tests: Fallback to full-chunk success on 2xx
 
-### Jittered Backoff (1h)
-- [ ] Implement `calculateBackoff()` with exponential backoff
-- [ ] Add ±20% jitter calculation
-- [ ] Seed random number generator for jitter
-- [ ] Implement `parseRetryAfter()` for HTTP Retry-After header
-- [ ] Unit tests: Backoff values
-- [ ] Unit tests: Jitter range (±20%)
-- [ ] Unit tests: Retry-After parsing (seconds and HTTP-date)
+### Jittered Backoff (1h) ✅ COMPLETE
+- [x] Implement `calculateBackoff()` with exponential backoff
+- [x] Add ±20% jitter calculation
+- [x] Seed random number generator for jitter (Go runtime handles this)
+- [x] Implement `parseRetryAfter()` for HTTP Retry-After header
+- [x] Unit tests: Backoff values
+- [x] Unit tests: Jitter range (±20%)
+- [x] Unit tests: Retry-After parsing (seconds and HTTP-date)
 
 ## Day 2: Collectors (7-9 hours)
 

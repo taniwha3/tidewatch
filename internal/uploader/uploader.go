@@ -331,8 +331,8 @@ func (u *HTTPUploader) calculateBackoff(attempt int, err error) time.Duration {
 		backoff = float64(30 * time.Second)
 	}
 
-	// Add jitter (±25%)
-	jitter := backoff * 0.25 * (rand.Float64()*2 - 1)
+	// Add jitter (±20% per M2 spec)
+	jitter := backoff * 0.20 * (rand.Float64()*2 - 1)
 	backoff += jitter
 
 	return time.Duration(backoff)
