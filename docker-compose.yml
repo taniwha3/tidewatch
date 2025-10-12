@@ -1,0 +1,63 @@
+# Docker Compose configuration for local VictoriaMetrics testing
+#
+# Usage:
+#   docker-compose up -d           # Start VictoriaMetrics in background
+#   docker-compose logs -f victoria # Follow logs
+#   docker-compose down            # Stop and remove containers
+#
+# VictoriaMetrics will be available at:
+#   - Metrics import API: http://localhost:8428/api/v1/import
+#   - Query API: http://localhost:8428/api/v1/query
+#   - UI: http://localhost:8428/vmui
+
+version: '3.8'
+
+services:
+  # VictoriaMetrics single-node instance
+  victoria:
+    image: victoriametrics/victoria-metrics:latest
+    container_name: thugshells-victoria
+    ports:
+      - "8428:8428"  # HTTP API and UI
+    volumes:
+      - victoria-data:/victoria-metrics-data
+    command:
+      - '--storageDataPath=/victoria-metrics-data'
+      - '--httpListenAddr=:8428'
+      - '--retentionPeriod=30d'  # Keep metrics for 30 days
+      - '--maxInsertRequestSize=32MB'  # Allow larger requests
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8428/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Grafana for visualization (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: thugshells-grafana
+    ports:
+      - "3000:3000"  # Grafana UI
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning  # Auto-provision datasources
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    depends_on:
+      - victoria
+    restart: unless-stopped
+
+volumes:
+  victoria-data:
+    name: thugshells-victoria-data
+  grafana-data:
+    name: thugshells-grafana-data
+
+networks:
+  default:
+    name: thugshells-metrics

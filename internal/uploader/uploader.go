@@ -3,10 +3,13 @@ package uploader
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
+	"math/rand"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/taniwha3/thugshells/internal/models"
@@ -24,20 +27,71 @@ type Uploader interface {
 	Close() error
 }
 
-// HTTPUploader implements Uploader using HTTP POST
+// HTTPUploader implements Uploader using HTTP POST to VictoriaMetrics
 type HTTPUploader struct {
-	url      string
-	deviceID string
-	client   *http.Client
+	url           string
+	deviceID      string
+	authToken     string
+	client        *http.Client
+	maxRetries    int
+	retryDelay    time.Duration
+	chunkSize     int
 }
 
-// NewHTTPUploader creates a new HTTP uploader
+// HTTPUploaderConfig configures the HTTP uploader
+type HTTPUploaderConfig struct {
+	URL           string
+	DeviceID      string
+	AuthToken     string        // Optional bearer token
+	Timeout       time.Duration // Default: 30s
+	MaxRetries    int           // Default: 3
+	RetryDelay    time.Duration // Base delay for exponential backoff, default: 1s
+	ChunkSize     int           // Metrics per chunk, default: 50
+}
+
+// NewHTTPUploader creates a new HTTP uploader with default settings
 func NewHTTPUploader(url, deviceID string) *HTTPUploader {
+	return NewHTTPUploaderWithConfig(HTTPUploaderConfig{
+		URL:        url,
+		DeviceID:   deviceID,
+		Timeout:    30 * time.Second,
+		MaxRetries: 3,
+		RetryDelay: 1 * time.Second,
+		ChunkSize:  50,
+	})
+}
+
+// NewHTTPUploaderWithConfig creates a new HTTP uploader with custom configuration
+func NewHTTPUploaderWithConfig(cfg HTTPUploaderConfig) *HTTPUploader {
+	timeout := cfg.Timeout
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+
+	maxRetries := cfg.MaxRetries
+	if maxRetries == 0 {
+		maxRetries = 3
+	}
+
+	retryDelay := cfg.RetryDelay
+	if retryDelay == 0 {
+		retryDelay = 1 * time.Second
+	}
+
+	chunkSize := cfg.ChunkSize
+	if chunkSize == 0 {
+		chunkSize = 50
+	}
+
 	return &HTTPUploader{
-		url:      url,
-		deviceID: deviceID,
+		url:        cfg.URL,
+		deviceID:   cfg.DeviceID,
+		authToken:  cfg.AuthToken,
+		maxRetries: maxRetries,
+		retryDelay: retryDelay,
+		chunkSize:  chunkSize,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: timeout,
 			Transport: &http.Transport{
 				MaxIdleConns:        10,
 				MaxIdleConnsPerHost: 2,
@@ -47,93 +101,135 @@ func NewHTTPUploader(url, deviceID string) *HTTPUploader {
 	}
 }
 
-// MetricsPayload represents the JSON payload sent to the remote endpoint
-type MetricsPayload struct {
-	DeviceID  string          `json:"device_id"`
-	Timestamp string          `json:"timestamp"`
-	Metrics   []MetricPayload `json:"metrics"`
-}
-
-// MetricPayload represents a single metric in the JSON payload
-type MetricPayload struct {
-	Name      string  `json:"name"`
-	Value     float64 `json:"value"`
-	Timestamp string  `json:"timestamp"`
-}
-
-// Response represents the response from the remote endpoint
-type Response struct {
-	Success  bool   `json:"success"`
-	Received int    `json:"received"`
-	Error    string `json:"error,omitempty"`
-}
-
-// Upload sends metrics to the remote endpoint
+// Upload sends metrics to VictoriaMetrics with chunking, compression, and retry
 func (u *HTTPUploader) Upload(ctx context.Context, metrics []*models.Metric) error {
 	if len(metrics) == 0 {
 		return nil
 	}
 
-	// Build payload
-	payload := MetricsPayload{
-		DeviceID:  u.deviceID,
-		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-		Metrics:   make([]MetricPayload, len(metrics)),
+	// Build chunks (includes JSONL formatting and gzip compression)
+	chunks, err := BuildChunks(metrics, u.chunkSize)
+	if err != nil {
+		return fmt.Errorf("failed to build chunks: %w", err)
 	}
 
-	for i, m := range metrics {
-		payload.Metrics[i] = MetricPayload{
-			Name:      m.Name,
-			Value:     m.Value,
-			Timestamp: time.UnixMilli(m.TimestampMs).UTC().Format(time.RFC3339Nano),
+	// Upload each chunk with retry
+	for i, chunk := range chunks {
+		if err := u.uploadChunkWithRetry(ctx, chunk, i); err != nil {
+			return fmt.Errorf("failed to upload chunk %d/%d: %w", i+1, len(chunks), err)
 		}
 	}
 
-	// Marshal to JSON
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal payload: %w", err)
+	return nil
+}
+
+// uploadChunkWithRetry uploads a single chunk with exponential backoff retry
+func (u *HTTPUploader) uploadChunkWithRetry(ctx context.Context, chunk *Chunk, chunkIndex int) error {
+	var lastErr error
+
+	for attempt := 0; attempt <= u.maxRetries; attempt++ {
+		// Check context before each attempt
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		err := u.uploadChunk(ctx, chunk, chunkIndex, attempt)
+		if err == nil {
+			return nil // Success
+		}
+
+		lastErr = err
+
+		// Check if we should retry
+		if !isRetryable(err) {
+			return fmt.Errorf("non-retryable error: %w", err)
+		}
+
+		// Don't sleep after the last attempt
+		if attempt < u.maxRetries {
+			delay := u.calculateBackoff(attempt, err)
+			select {
+			case <-time.After(delay):
+				// Continue to next attempt
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
 	}
 
-	// Create request
-	req, err := http.NewRequestWithContext(ctx, "POST", u.url, bytes.NewReader(body))
+	return fmt.Errorf("max retries (%d) exceeded: %w", u.maxRetries, lastErr)
+}
+
+// uploadChunk uploads a single chunk to VictoriaMetrics
+func (u *HTTPUploader) uploadChunk(ctx context.Context, chunk *Chunk, chunkIndex, attempt int) error {
+	// Create request with compressed data
+	req, err := http.NewRequestWithContext(ctx, "POST", u.url, bytes.NewReader(chunk.CompressedData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "thugshells-metrics-collector/1.0")
+	// Set required headers per engineering review
+	req.Header.Set("Content-Type", "application/x-ndjson") // JSONL / newline-delimited JSON
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("User-Agent", "thugshells/1.0")
+	req.Header.Set("X-Device-ID", u.deviceID)
+
+	// Add authorization if configured
+	if u.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+u.authToken)
+	}
+
+	// Add debug/tracking headers
+	req.Header.Set("X-Chunk-Index", strconv.Itoa(chunkIndex))
+	req.Header.Set("X-Chunk-Metrics", strconv.Itoa(len(chunk.Metrics)))
+	req.Header.Set("X-Attempt", strconv.Itoa(attempt))
 
 	// Send request
 	resp, err := u.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return &RetryableError{Err: err}
 	}
 	defer resp.Body.Close()
 
-	// Read response body
-	respBody, err := io.ReadAll(resp.Body)
+	// Read response body (limited to prevent memory issues)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024)) // 1MB limit
 	if err != nil {
 		return fmt.Errorf("failed to read response: %w", err)
 	}
 
 	// Check status code
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("upload failed with status %d: %s", resp.StatusCode, string(respBody))
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil // Success
 	}
 
-	// Parse response (optional validation)
-	var response Response
-	if err := json.Unmarshal(respBody, &response); err != nil {
-		// Non-fatal: server may not return JSON
-		return nil
+	// Handle specific status codes
+	switch resp.StatusCode {
+	case http.StatusBadRequest: // 400
+		return &NonRetryableError{
+			StatusCode: resp.StatusCode,
+			Message:    fmt.Sprintf("bad request: %s", string(respBody)),
+		}
+	case http.StatusUnauthorized: // 401
+		return &NonRetryableError{
+			StatusCode: resp.StatusCode,
+			Message:    "unauthorized - check auth token",
+		}
+	case http.StatusTooManyRequests: // 429
+		return &RateLimitError{
+			StatusCode: resp.StatusCode,
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+		}
+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		// 500, 502, 503, 504 - server errors are retryable
+		return &RetryableError{
+			Err: fmt.Errorf("server error %d: %s", resp.StatusCode, string(respBody)),
+		}
+	default:
+		// Other errors are retryable by default
+		return &RetryableError{
+			Err: fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody)),
+		}
 	}
-
-	if !response.Success {
-		return fmt.Errorf("upload failed: %s", response.Error)
-	}
-
-	return nil
 }
 
 // UploadBatch sends multiple batches of metrics
@@ -165,4 +261,101 @@ func (u *HTTPUploader) GetURL() string {
 // GetDeviceID returns the configured device ID
 func (u *HTTPUploader) GetDeviceID() string {
 	return u.deviceID
+}
+
+// Error types for retry logic
+
+// RetryableError indicates an error that should be retried
+type RetryableError struct {
+	Err error
+}
+
+func (e *RetryableError) Error() string {
+	return fmt.Sprintf("retryable error: %v", e.Err)
+}
+
+func (e *RetryableError) Unwrap() error {
+	return e.Err
+}
+
+// NonRetryableError indicates an error that should not be retried
+type NonRetryableError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *NonRetryableError) Error() string {
+	return fmt.Sprintf("non-retryable error (status %d): %s", e.StatusCode, e.Message)
+}
+
+// RateLimitError indicates rate limiting with optional Retry-After
+type RateLimitError struct {
+	StatusCode int
+	RetryAfter time.Duration
+}
+
+func (e *RateLimitError) Error() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("rate limited (status %d): retry after %v", e.StatusCode, e.RetryAfter)
+	}
+	return fmt.Sprintf("rate limited (status %d)", e.StatusCode)
+}
+
+// isRetryable checks if an error should be retried
+func isRetryable(err error) bool {
+	// Check for explicit non-retryable errors
+	var nonRetryable *NonRetryableError
+	if errors.As(err, &nonRetryable) {
+		return false
+	}
+
+	// Rate limits and retryable errors should be retried
+	return true
+}
+
+// calculateBackoff calculates exponential backoff with jitter
+func (u *HTTPUploader) calculateBackoff(attempt int, err error) time.Duration {
+	// Check for Retry-After header in rate limit errors
+	var rateLimitErr *RateLimitError
+	if errors.As(err, &rateLimitErr) && rateLimitErr.RetryAfter > 0 {
+		// Add jitter to Retry-After
+		jitter := time.Duration(rand.Float64() * float64(time.Second))
+		return rateLimitErr.RetryAfter + jitter
+	}
+
+	// Exponential backoff: baseDelay * 2^attempt
+	backoff := float64(u.retryDelay) * math.Pow(2, float64(attempt))
+
+	// Cap at 30 seconds
+	if backoff > float64(30*time.Second) {
+		backoff = float64(30 * time.Second)
+	}
+
+	// Add jitter (±25%)
+	jitter := backoff * 0.25 * (rand.Float64()*2 - 1)
+	backoff += jitter
+
+	return time.Duration(backoff)
+}
+
+// parseRetryAfter parses the Retry-After header (seconds or HTTP date)
+func parseRetryAfter(header string) time.Duration {
+	if header == "" {
+		return 0
+	}
+
+	// Try parsing as seconds
+	if seconds, err := strconv.Atoi(header); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+
+	// Try parsing as HTTP date
+	if t, err := time.Parse(time.RFC1123, header); err == nil {
+		duration := time.Until(t)
+		if duration > 0 {
+			return duration
+		}
+	}
+
+	return 0
 }
