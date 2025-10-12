@@ -260,6 +260,109 @@ func TestUploadMetrics_BatchLimit(t *testing.T) {
 	}
 }
 
+func TestUploadMetrics_StringMetricsRemainInStorage(t *testing.T) {
+	// Create temporary database
+	dbPath := t.TempDir() + "/test.db"
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Store 2500 string metrics followed by 100 numeric metrics
+	// This tests that QueryUnuploaded only returns numeric metrics
+	now := time.Now()
+	var testMetrics []*models.Metric
+
+	// Add 2500 string metrics (should NOT be queried for upload)
+	for i := 0; i < 2500; i++ {
+		testMetrics = append(testMetrics, &models.Metric{
+			Name:        "test.string_metric",
+			TimestampMs: now.UnixMilli() + int64(i*1000),
+			Value:       0, // String metrics use ValueText, not Value
+			DeviceID:    "test-device",
+			ValueType:   models.ValueTypeString,
+			ValueText:   fmt.Sprintf("string_value_%d", i),
+		})
+	}
+
+	// Add 100 numeric metrics (should be uploaded)
+	for i := 0; i < 100; i++ {
+		testMetrics = append(testMetrics, &models.Metric{
+			Name:        "test.numeric_metric",
+			TimestampMs: now.UnixMilli() + int64((2500+i)*1000),
+			Value:       float64(i),
+			DeviceID:    "test-device",
+			ValueType:   models.ValueTypeNumeric,
+		})
+	}
+
+	if err := store.StoreBatch(ctx, testMetrics); err != nil {
+		t.Fatalf("Failed to store metrics: %v", err)
+	}
+
+	// GetPendingCount only counts unuploaded NUMERIC metrics (value_type=0)
+	// This prevents string metrics from inflating pending count and causing health issues
+	pendingBefore, err := store.GetPendingCount(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get pending count: %v", err)
+	}
+	if pendingBefore != 100 {
+		t.Errorf("Expected 100 pending numeric metrics, got %d", pendingBefore)
+	}
+
+	// Create mock uploader
+	mockUpload := &mockUploader{}
+
+	// Upload should only process 100 numeric metrics (string metrics filtered by QueryUnuploaded)
+	logger := testLogger()
+	count, err := uploadMetrics(ctx, store, mockUpload, logger)
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+
+	// Return value should be 100 (only numeric metrics)
+	if count != 100 {
+		t.Errorf("Expected upload count of 100 (numeric metrics only), got %d", count)
+	}
+
+	// Mock uploader should have received only 100 numeric metrics
+	if len(mockUpload.uploadedMetrics) != 100 {
+		t.Errorf("Expected 100 numeric metrics uploaded, got %d", len(mockUpload.uploadedMetrics))
+	}
+
+	// Verify all uploaded metrics are numeric
+	for i, m := range mockUpload.uploadedMetrics {
+		if m.ValueType != models.ValueTypeNumeric {
+			t.Errorf("Metric %d has wrong type: expected numeric (0), got %d", i, m.ValueType)
+		}
+	}
+
+	// Critical: String metrics remain in SQLite with uploaded=0 for local processing
+	// GetPendingCount now returns 0 because it only counts numeric metrics (value_type=0)
+	// This prevents string metrics from triggering health degradation
+	pendingAfter, err := store.GetPendingCount(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get pending count: %v", err)
+	}
+	if pendingAfter != 0 {
+		t.Errorf("Expected 0 pending numeric metrics (all uploaded), got %d", pendingAfter)
+	}
+
+	// Verify second upload finds no numeric metrics (but string metrics still present)
+	mockUpload.uploadedMetrics = nil
+	count2, err := uploadMetrics(ctx, store, mockUpload, logger)
+	if err != nil {
+		t.Fatalf("Second upload failed: %v", err)
+	}
+
+	if count2 != 0 {
+		t.Errorf("Expected 0 metrics on second upload (all numeric already uploaded), got %d", count2)
+	}
+}
+
 func TestMain(m *testing.M) {
 	// Run tests
 	code := m.Run()

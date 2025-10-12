@@ -68,14 +68,28 @@ func isCounter(name string) bool {
 
 // BuildVMJSONL converts metrics to VictoriaMetrics JSONL format
 // Each line is a separate JSON object
-func BuildVMJSONL(metrics []*models.Metric) ([]byte, error) {
+// String metrics (ValueType=1) are filtered out as VictoriaMetrics only accepts numeric values
+// Returns the JSONL data and a slice of storage IDs for metrics that were actually included
+func BuildVMJSONL(metrics []*models.Metric) ([]byte, []int64, error) {
 	if len(metrics) == 0 {
-		return []byte{}, nil
+		return []byte{}, nil, nil
 	}
 
 	var buf bytes.Buffer
+	var includedIDs []int64
 
 	for _, m := range metrics {
+		// Skip string metrics - VictoriaMetrics only accepts numeric values
+		if m.ValueType == models.ValueTypeString {
+			continue
+		}
+
+		// Extract storage ID before filtering tags
+		var storageID int64
+		if idStr, ok := m.Tags["_storage_id"]; ok {
+			fmt.Sscanf(idStr, "%d", &storageID)
+		}
+
 		// Build metric labels (tags)
 		labels := make(map[string]string)
 
@@ -114,15 +128,20 @@ func BuildVMJSONL(metrics []*models.Metric) ([]byte, error) {
 		// Marshal to JSON
 		line, err := json.Marshal(vmMetric)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal metric %s: %w", m.Name, err)
+			return nil, nil, fmt.Errorf("failed to marshal metric %s: %w", m.Name, err)
 		}
 
 		// Write line + newline
 		buf.Write(line)
 		buf.WriteByte('\n')
+
+		// Track this metric's storage ID
+		if storageID > 0 {
+			includedIDs = append(includedIDs, storageID)
+		}
 	}
 
-	return buf.Bytes(), nil
+	return buf.Bytes(), includedIDs, nil
 }
 
 // CompressGzip compresses data using gzip with BestSpeed for ARM efficiency
@@ -149,10 +168,11 @@ func CompressGzip(data []byte) ([]byte, error) {
 
 // Chunk represents a batch of metrics ready for upload
 type Chunk struct {
-	Metrics      []*models.Metric
-	JSONLData    []byte
+	Metrics        []*models.Metric // Original metrics (may include string metrics)
+	IncludedIDs    []int64          // Storage IDs of metrics actually sent (numeric only)
+	JSONLData      []byte
 	CompressedData []byte
-	Size         int // Size in bytes after compression
+	Size           int // Size in bytes after compression
 }
 
 // BuildChunks splits metrics into chunks and compresses them
@@ -181,10 +201,16 @@ func BuildChunks(metrics []*models.Metric, chunkSize int) ([]*Chunk, error) {
 
 		chunkMetrics := sortedMetrics[i:end]
 
-		// Build JSONL
-		jsonlData, err := BuildVMJSONL(chunkMetrics)
+		// Build JSONL and collect IDs of included metrics
+		jsonlData, includedIDs, err := BuildVMJSONL(chunkMetrics)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build JSONL for chunk: %w", err)
+		}
+
+		// Skip empty chunks (e.g., when all metrics are string-valued)
+		// VictoriaMetrics rejects empty imports, and it wastes bandwidth
+		if len(jsonlData) == 0 {
+			continue
 		}
 
 		// Compress
@@ -219,6 +245,7 @@ func BuildChunks(metrics []*models.Metric, chunkSize int) ([]*Chunk, error) {
 
 		chunk := &Chunk{
 			Metrics:        chunkMetrics,
+			IncludedIDs:    includedIDs,
 			JSONLData:      jsonlData,
 			CompressedData: compressed,
 			Size:           len(compressed),

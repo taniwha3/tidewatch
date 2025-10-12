@@ -600,11 +600,13 @@ func (s *SQLiteStorage) Query(ctx context.Context, opts QueryOptions) ([]*models
 }
 
 // QueryUnuploaded retrieves metrics that haven't been uploaded yet
+// Only returns numeric metrics (value_type=0) since VictoriaMetrics doesn't accept string metrics
+// String metrics remain in SQLite for local event processing
 func (s *SQLiteStorage) QueryUnuploaded(ctx context.Context, limit int) ([]*models.Metric, error) {
 	query := `
 		SELECT id, timestamp_ms, metric_name, metric_value, value_text, value_type, device_id, tags_json
 		FROM metrics
-		WHERE uploaded = 0
+		WHERE uploaded = 0 AND value_type = 0
 		ORDER BY priority DESC, timestamp_ms ASC
 	`
 	args := []interface{}{}
@@ -709,10 +711,12 @@ func (s *SQLiteStorage) MarkUploaded(ctx context.Context, ids []int64) error {
 	return nil
 }
 
-// GetPendingCount returns the count of unuploaded metrics
+// GetPendingCount returns the count of unuploaded numeric metrics
+// Only counts value_type=0 (numeric) since string metrics are not uploaded to VictoriaMetrics
+// This prevents string metrics from inflating the pending count and triggering false health degradation
 func (s *SQLiteStorage) GetPendingCount(ctx context.Context) (int64, error) {
 	var count int64
-	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM metrics WHERE uploaded = 0").Scan(&count)
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM metrics WHERE uploaded = 0 AND value_type = 0").Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count pending metrics: %w", err)
 	}

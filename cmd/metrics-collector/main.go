@@ -390,7 +390,8 @@ func runUploadLoop(
 }
 
 // uploadMetrics queries unuploaded metrics and uploads them
-// Returns the number of metrics uploaded and any error
+// Returns the number of metrics actually sent to VictoriaMetrics (numeric only) and any error
+// Note: String metrics are processed and marked as uploaded but not counted in the return value
 func uploadMetrics(
 	ctx context.Context,
 	store *storage.SQLiteStorage,
@@ -410,31 +411,48 @@ func uploadMetrics(
 		return 0, nil
 	}
 
-	// Extract metric IDs from the _storage_id tag for marking as uploaded
-	metricIDs := make([]int64, 0, len(metrics))
-	for _, m := range metrics {
-		if idStr, ok := m.Tags["_storage_id"]; ok {
-			var id int64
-			if _, err := fmt.Sscanf(idStr, "%d", &id); err == nil {
-				metricIDs = append(metricIDs, id)
+	// Upload metrics and collect IDs of metrics actually sent to VictoriaMetrics
+	var uploadedIDs []int64
+
+	// Try to use UploadAndGetIDs if available (for HTTPUploader)
+	if httpUploader, ok := upload.(*uploader.HTTPUploader); ok {
+		var err error
+		uploadedIDs, err = httpUploader.UploadAndGetIDs(ctx, metrics)
+		if err != nil {
+			logger.Error("Upload failed",
+				slog.Int("count", len(metrics)),
+				slog.Any("error", err),
+			)
+			return 0, err
+		}
+	} else {
+		// Fallback for other uploaders (e.g., mocks): upload and extract IDs manually
+		if err := upload.Upload(ctx, metrics); err != nil {
+			logger.Error("Upload failed",
+				slog.Int("count", len(metrics)),
+				slog.Any("error", err),
+			)
+			return 0, err
+		}
+
+		// Extract IDs from all metrics in the batch (already filtered to numeric only by QueryUnuploaded)
+		for _, m := range metrics {
+			if idStr, ok := m.Tags["_storage_id"]; ok {
+				var id int64
+				if _, err := fmt.Sscanf(idStr, "%d", &id); err == nil {
+					uploadedIDs = append(uploadedIDs, id)
+				}
 			}
 		}
 	}
 
-	// Upload metrics
-	if err := upload.Upload(ctx, metrics); err != nil {
-		logger.Error("Upload failed",
-			slog.Int("count", len(metrics)),
-			slog.Any("error", err),
-		)
-		return 0, err
-	}
-
-	// Mark metrics as uploaded after successful upload
-	if len(metricIDs) > 0 {
-		if err := store.MarkUploaded(ctx, metricIDs); err != nil {
+	// Mark only the metrics that were actually uploaded (numeric metrics only)
+	// String metrics never enter this function because QueryUnuploaded filters them out
+	// They remain in SQLite with uploaded=0 for local event processing
+	if len(uploadedIDs) > 0 {
+		if err := store.MarkUploaded(ctx, uploadedIDs); err != nil {
 			logger.Warn("Failed to mark metrics as uploaded",
-				slog.Int("count", len(metricIDs)),
+				slog.Int("count", len(uploadedIDs)),
 				slog.Any("error", err),
 			)
 			// Don't return error here - metrics were uploaded successfully
@@ -442,9 +460,12 @@ func uploadMetrics(
 	}
 
 	logger.Info("Upload completed",
-		slog.Int("count", len(metrics)),
+		slog.Int("count", len(uploadedIDs)),
 	)
-	return len(metrics), nil
+
+	// Return the count of metrics actually sent to VictoriaMetrics
+	// This ensures meta-metrics accurately reflect what was uploaded
+	return len(uploadedIDs), nil
 }
 
 // runStorageMonitoring periodically updates storage health metrics

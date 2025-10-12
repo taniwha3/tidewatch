@@ -3,9 +3,12 @@ package uploader
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -18,7 +21,7 @@ func TestBuildVMJSONL_SingleMetric(t *testing.T) {
 	metric := models.NewMetric("cpu.temperature", 45.5, "device-001").
 		WithTimestamp(now)
 
-	result, err := BuildVMJSONL([]*models.Metric{metric})
+	result, _, err := BuildVMJSONL([]*models.Metric{metric})
 	if err != nil {
 		t.Fatalf("BuildVMJSONL failed: %v", err)
 	}
@@ -59,7 +62,7 @@ func TestBuildVMJSONL_MultipleMetrics(t *testing.T) {
 		models.NewMetric("network.tx.total", 5000.0, "device-001").WithTimestamp(now.Add(2 * time.Second)),
 	}
 
-	result, err := BuildVMJSONL(metrics)
+	result, _, err := BuildVMJSONL(metrics)
 	if err != nil {
 		t.Fatalf("BuildVMJSONL failed: %v", err)
 	}
@@ -214,7 +217,7 @@ func TestBuildVMJSONL_WithTags(t *testing.T) {
 		WithTag("cpu", "0").
 		WithTag("host", "server1")
 
-	result, err := BuildVMJSONL([]*models.Metric{metric})
+	result, _, err := BuildVMJSONL([]*models.Metric{metric})
 	if err != nil {
 		t.Fatalf("BuildVMJSONL failed: %v", err)
 	}
@@ -250,7 +253,7 @@ func TestBuildVMJSONL_FiltersStorageTags(t *testing.T) {
 		WithTag("_storage_id", "12345").
 		WithTag("zone", "thermal0")
 
-	result, err := BuildVMJSONL([]*models.Metric{metric})
+	result, _, err := BuildVMJSONL([]*models.Metric{metric})
 	if err != nil {
 		t.Fatalf("BuildVMJSONL failed: %v", err)
 	}
@@ -283,7 +286,7 @@ func TestBuildVMJSONL_EmptyTags(t *testing.T) {
 	metric := models.NewMetric("cpu.temperature", 45.5, "device-001").
 		WithTimestamp(now)
 
-	result, err := BuildVMJSONL([]*models.Metric{metric})
+	result, _, err := BuildVMJSONL([]*models.Metric{metric})
 	if err != nil {
 		t.Fatalf("BuildVMJSONL failed: %v", err)
 	}
@@ -308,7 +311,7 @@ func TestBuildVMJSONL_EmptyTags(t *testing.T) {
 
 // TestBuildVMJSONL_EmptyInput verifies handling of empty metric slice
 func TestBuildVMJSONL_EmptyInput(t *testing.T) {
-	result, err := BuildVMJSONL([]*models.Metric{})
+	result, _, err := BuildVMJSONL([]*models.Metric{})
 	if err != nil {
 		t.Fatalf("BuildVMJSONL failed: %v", err)
 	}
@@ -519,5 +522,278 @@ func TestBuildChunks_EmptyInput(t *testing.T) {
 
 	if len(chunks) != 0 {
 		t.Errorf("Expected 0 chunks for empty input, got %d", len(chunks))
+	}
+}
+
+// TestBuildVMJSONL_FiltersStringMetrics verifies string metrics are excluded
+func TestBuildVMJSONL_FiltersStringMetrics(t *testing.T) {
+	now := time.Now()
+	metrics := []*models.Metric{
+		models.NewMetric("cpu.temperature", 45.5, "device-001").WithTimestamp(now),
+		models.NewStringMetric("system.status", "healthy", "device-001").WithTimestamp(now.Add(time.Second)),
+		models.NewMetric("memory.used", 1024.0, "device-001").WithTimestamp(now.Add(2 * time.Second)),
+		models.NewStringMetric("error.message", "connection timeout", "device-001").WithTimestamp(now.Add(3 * time.Second)),
+	}
+
+	result, _, err := BuildVMJSONL(metrics)
+	if err != nil {
+		t.Fatalf("BuildVMJSONL failed: %v", err)
+	}
+
+	// Should only have 2 lines (2 numeric metrics), not 4
+	lines := bytes.Split(result, []byte("\n"))
+	if len(lines) != 3 { // 2 metrics + empty after final \n
+		t.Fatalf("Expected 3 splits (2 lines + empty), got %d", len(lines))
+	}
+
+	// Verify first line is numeric metric
+	var vmMetric1 VMMetric
+	if err := json.Unmarshal(lines[0], &vmMetric1); err != nil {
+		t.Fatalf("Failed to parse line 0: %v", err)
+	}
+	if vmMetric1.Metric["__name__"] != "cpu_temperature_celsius" {
+		t.Errorf("Expected cpu_temperature_celsius, got '%s'", vmMetric1.Metric["__name__"])
+	}
+
+	// Verify second line is numeric metric
+	var vmMetric2 VMMetric
+	if err := json.Unmarshal(lines[1], &vmMetric2); err != nil {
+		t.Fatalf("Failed to parse line 1: %v", err)
+	}
+	if vmMetric2.Metric["__name__"] != "memory_used" {
+		t.Errorf("Expected memory_used, got '%s'", vmMetric2.Metric["__name__"])
+	}
+}
+
+// TestBuildVMJSONL_AllStringMetrics verifies empty output when all metrics are strings
+func TestBuildVMJSONL_AllStringMetrics(t *testing.T) {
+	now := time.Now()
+	metrics := []*models.Metric{
+		models.NewStringMetric("system.status", "healthy", "device-001").WithTimestamp(now),
+		models.NewStringMetric("error.message", "none", "device-001").WithTimestamp(now.Add(time.Second)),
+	}
+
+	result, _, err := BuildVMJSONL(metrics)
+	if err != nil {
+		t.Fatalf("BuildVMJSONL failed: %v", err)
+	}
+
+	// Should be empty since all metrics are strings
+	if len(result) != 0 {
+		t.Errorf("Expected empty output for all string metrics, got %d bytes: %s", len(result), string(result))
+	}
+}
+
+// TestBuildChunks_FiltersStringMetrics verifies string metrics don't create chunks
+func TestBuildChunks_FiltersStringMetrics(t *testing.T) {
+	now := time.Now()
+	metrics := []*models.Metric{
+		models.NewMetric("cpu.temperature", 45.5, "device-001").WithTimestamp(now),
+		models.NewStringMetric("system.status", "healthy", "device-001").WithTimestamp(now.Add(time.Second)),
+		models.NewMetric("memory.used", 1024.0, "device-001").WithTimestamp(now.Add(2 * time.Second)),
+	}
+
+	chunks, err := BuildChunks(metrics, 50)
+	if err != nil {
+		t.Fatalf("BuildChunks failed: %v", err)
+	}
+
+	// Should have 1 chunk with only 2 numeric metrics
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
+	}
+
+	chunk := chunks[0]
+	// Chunk.Metrics contains all 3 original metrics, but JSONL should only have 2
+	if len(chunk.Metrics) != 3 {
+		t.Errorf("Expected 3 original metrics in chunk.Metrics, got %d", len(chunk.Metrics))
+	}
+
+	// Verify JSONL only has numeric metrics
+	lines := bytes.Split(chunk.JSONLData, []byte("\n"))
+	if len(lines) != 3 { // 2 numeric + empty
+		t.Errorf("Expected 3 JSONL lines (2 numeric + empty), got %d", len(lines))
+	}
+}
+
+// TestBuildChunks_SkipsEmptyChunks verifies chunks with only string metrics are skipped
+func TestBuildChunks_SkipsEmptyChunks(t *testing.T) {
+	now := time.Now()
+	// Create 3 chunks worth of metrics: all strings, mixed, all numeric
+	metrics := []*models.Metric{
+		// First 50: all strings (should be skipped)
+		models.NewStringMetric("error.message.0", "error 0", "device-001").WithTimestamp(now),
+		models.NewStringMetric("error.message.1", "error 1", "device-001").WithTimestamp(now.Add(time.Second)),
+		models.NewStringMetric("error.message.2", "error 2", "device-001").WithTimestamp(now.Add(2 * time.Second)),
+
+		// Next 50: mixed (should create 1 chunk)
+		models.NewMetric("cpu.temperature.0", 45.0, "device-001").WithTimestamp(now.Add(3 * time.Second)),
+		models.NewStringMetric("status.0", "ok", "device-001").WithTimestamp(now.Add(4 * time.Second)),
+		models.NewMetric("cpu.temperature.1", 46.0, "device-001").WithTimestamp(now.Add(5 * time.Second)),
+
+		// Last 50: all numeric (should create 1 chunk)
+		models.NewMetric("memory.used.0", 1024.0, "device-001").WithTimestamp(now.Add(6 * time.Second)),
+		models.NewMetric("memory.used.1", 2048.0, "device-001").WithTimestamp(now.Add(7 * time.Second)),
+	}
+
+	chunks, err := BuildChunks(metrics, 3) // Small chunk size to force multiple chunks
+	if err != nil {
+		t.Fatalf("BuildChunks failed: %v", err)
+	}
+
+	// Should have 2 chunks (all-string chunk skipped, mixed chunk, all-numeric chunk)
+	if len(chunks) != 2 {
+		t.Fatalf("Expected 2 chunks (empty chunk skipped), got %d", len(chunks))
+	}
+
+	// First chunk should have mixed metrics (2 numeric out of 3 total)
+	if len(chunks[0].Metrics) != 3 {
+		t.Errorf("Chunk 0: expected 3 original metrics, got %d", len(chunks[0].Metrics))
+	}
+	lines0 := bytes.Split(chunks[0].JSONLData, []byte("\n"))
+	if len(lines0) != 3 { // 2 numeric + empty
+		t.Errorf("Chunk 0: expected 3 JSONL lines (2 numeric + empty), got %d", len(lines0))
+	}
+
+	// Second chunk should have all numeric (2 out of 2)
+	if len(chunks[1].Metrics) != 2 {
+		t.Errorf("Chunk 1: expected 2 metrics, got %d", len(chunks[1].Metrics))
+	}
+	lines1 := bytes.Split(chunks[1].JSONLData, []byte("\n"))
+	if len(lines1) != 3 { // 2 numeric + empty
+		t.Errorf("Chunk 1: expected 3 JSONL lines (2 numeric + empty), got %d", len(lines1))
+	}
+}
+
+// TestBuildChunks_AllStringMetricsReturnsEmpty verifies all-string batch returns no chunks
+func TestBuildChunks_AllStringMetricsReturnsEmpty(t *testing.T) {
+	now := time.Now()
+	metrics := []*models.Metric{
+		models.NewStringMetric("error.message", "error 1", "device-001").WithTimestamp(now),
+		models.NewStringMetric("status", "degraded", "device-001").WithTimestamp(now.Add(time.Second)),
+		models.NewStringMetric("log.level", "warn", "device-001").WithTimestamp(now.Add(2 * time.Second)),
+	}
+
+	chunks, err := BuildChunks(metrics, 50)
+	if err != nil {
+		t.Fatalf("BuildChunks failed: %v", err)
+	}
+
+	// Should return empty slice (no chunks created for all-string metrics)
+	if len(chunks) != 0 {
+		t.Errorf("Expected 0 chunks for all-string metrics, got %d", len(chunks))
+	}
+}
+
+// TestBuildVMJSONL_TracksIncludedIDs verifies that IncludedIDs contains only numeric metrics
+func TestBuildVMJSONL_TracksIncludedIDs(t *testing.T) {
+	now := time.Now()
+	metrics := []*models.Metric{
+		models.NewMetric("cpu.temperature", 45.5, "device-001").
+			WithTimestamp(now).
+			WithTag("_storage_id", "100"),
+		models.NewStringMetric("system.status", "healthy", "device-001").
+			WithTimestamp(now.Add(time.Second)).
+			WithTag("_storage_id", "101"),
+		models.NewMetric("memory.used", 1024.0, "device-001").
+			WithTimestamp(now.Add(2 * time.Second)).
+			WithTag("_storage_id", "102"),
+	}
+
+	_, includedIDs, err := BuildVMJSONL(metrics)
+	if err != nil {
+		t.Fatalf("BuildVMJSONL failed: %v", err)
+	}
+
+	// Should only include IDs for numeric metrics (100, 102), not string metric (101)
+	if len(includedIDs) != 2 {
+		t.Fatalf("Expected 2 included IDs, got %d", len(includedIDs))
+	}
+
+	if includedIDs[0] != 100 {
+		t.Errorf("Expected first ID to be 100, got %d", includedIDs[0])
+	}
+	if includedIDs[1] != 102 {
+		t.Errorf("Expected second ID to be 102, got %d", includedIDs[1])
+	}
+}
+
+// TestBuildChunks_TracksIncludedIDsAcrossChunks verifies IDs are tracked across multiple chunks
+func TestBuildChunks_TracksIncludedIDsAcrossChunks(t *testing.T) {
+	now := time.Now()
+	metrics := []*models.Metric{
+		// First chunk: 2 numeric
+		models.NewMetric("metric1", 1.0, "device-001").WithTimestamp(now).WithTag("_storage_id", "1"),
+		models.NewMetric("metric2", 2.0, "device-001").WithTimestamp(now.Add(time.Second)).WithTag("_storage_id", "2"),
+		// String metric (should be skipped)
+		models.NewStringMetric("status1", "ok", "device-001").WithTimestamp(now.Add(2 * time.Second)).WithTag("_storage_id", "3"),
+		// Second chunk: 2 numeric
+		models.NewMetric("metric3", 3.0, "device-001").WithTimestamp(now.Add(3 * time.Second)).WithTag("_storage_id", "4"),
+		models.NewMetric("metric4", 4.0, "device-001").WithTimestamp(now.Add(4 * time.Second)).WithTag("_storage_id", "5"),
+	}
+
+	chunks, err := BuildChunks(metrics, 3) // Small chunk size to force multiple chunks
+	if err != nil {
+		t.Fatalf("BuildChunks failed: %v", err)
+	}
+
+	// Should have 2 chunks (first chunk has 2 numeric + 1 string, second has 2 numeric)
+	if len(chunks) != 2 {
+		t.Fatalf("Expected 2 chunks, got %d", len(chunks))
+	}
+
+	// First chunk should have IDs 1, 2 (not 3 because it's a string)
+	if len(chunks[0].IncludedIDs) != 2 {
+		t.Errorf("Chunk 0: expected 2 included IDs, got %d", len(chunks[0].IncludedIDs))
+	}
+	if chunks[0].IncludedIDs[0] != 1 || chunks[0].IncludedIDs[1] != 2 {
+		t.Errorf("Chunk 0: unexpected IDs %v", chunks[0].IncludedIDs)
+	}
+
+	// Second chunk should have IDs 4, 5
+	if len(chunks[1].IncludedIDs) != 2 {
+		t.Errorf("Chunk 1: expected 2 included IDs, got %d", len(chunks[1].IncludedIDs))
+	}
+	if chunks[1].IncludedIDs[0] != 4 || chunks[1].IncludedIDs[1] != 5 {
+		t.Errorf("Chunk 1: unexpected IDs %v", chunks[1].IncludedIDs)
+	}
+}
+
+// TestUploadAndGetIDs_ReturnsOnlyNumericIDs verifies UploadAndGetIDs excludes string metrics
+func TestUploadAndGetIDs_ReturnsOnlyNumericIDs(t *testing.T) {
+	// Create mock HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	uploader := NewHTTPUploader(server.URL, "test-device")
+
+	now := time.Now()
+	metrics := []*models.Metric{
+		models.NewMetric("cpu.temp", 45.0, "test-device").
+			WithTimestamp(now).
+			WithTag("_storage_id", "10"),
+		models.NewStringMetric("status", "ok", "test-device").
+			WithTimestamp(now.Add(time.Second)).
+			WithTag("_storage_id", "11"),
+		models.NewMetric("memory.used", 1024.0, "test-device").
+			WithTimestamp(now.Add(2 * time.Second)).
+			WithTag("_storage_id", "12"),
+	}
+
+	ctx := context.Background()
+	uploadedIDs, err := uploader.UploadAndGetIDs(ctx, metrics)
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+
+	// Should only return IDs for numeric metrics (10, 12), not string (11)
+	if len(uploadedIDs) != 2 {
+		t.Fatalf("Expected 2 uploaded IDs, got %d: %v", len(uploadedIDs), uploadedIDs)
+	}
+
+	if uploadedIDs[0] != 10 || uploadedIDs[1] != 12 {
+		t.Errorf("Expected IDs [10, 12], got %v", uploadedIDs)
 	}
 }

@@ -103,24 +103,37 @@ func NewHTTPUploaderWithConfig(cfg HTTPUploaderConfig) *HTTPUploader {
 
 // Upload sends metrics to VictoriaMetrics with chunking, compression, and retry
 func (u *HTTPUploader) Upload(ctx context.Context, metrics []*models.Metric) error {
+	_, err := u.UploadAndGetIDs(ctx, metrics)
+	return err
+}
+
+// UploadAndGetIDs sends metrics to VictoriaMetrics and returns the storage IDs of metrics actually uploaded
+// String metrics are filtered out and their IDs are NOT included in the returned slice
+func (u *HTTPUploader) UploadAndGetIDs(ctx context.Context, metrics []*models.Metric) ([]int64, error) {
 	if len(metrics) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Build chunks (includes JSONL formatting and gzip compression)
 	chunks, err := BuildChunks(metrics, u.chunkSize)
 	if err != nil {
-		return fmt.Errorf("failed to build chunks: %w", err)
+		return nil, fmt.Errorf("failed to build chunks: %w", err)
+	}
+
+	// Collect all included IDs from chunks
+	var allIncludedIDs []int64
+	for _, chunk := range chunks {
+		allIncludedIDs = append(allIncludedIDs, chunk.IncludedIDs...)
 	}
 
 	// Upload each chunk with retry
 	for i, chunk := range chunks {
 		if err := u.uploadChunkWithRetry(ctx, chunk, i); err != nil {
-			return fmt.Errorf("failed to upload chunk %d/%d: %w", i+1, len(chunks), err)
+			return nil, fmt.Errorf("failed to upload chunk %d/%d: %w", i+1, len(chunks), err)
 		}
 	}
 
-	return nil
+	return allIncludedIDs, nil
 }
 
 // uploadChunkWithRetry uploads a single chunk with exponential backoff retry
