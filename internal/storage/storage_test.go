@@ -81,10 +81,11 @@ func TestStoreBatch(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
+	now := time.Now()
 	metrics := []*models.Metric{
-		models.NewMetric("cpu.temperature", 50.0, "device-001"),
-		models.NewMetric("cpu.temperature", 51.0, "device-001"),
-		models.NewMetric("srt.packet_loss_pct", 0.5, "device-001"),
+		models.NewMetric("cpu.temperature", 50.0, "device-001").WithTimestamp(now),
+		models.NewMetric("cpu.temperature", 51.0, "device-001").WithTimestamp(now.Add(1 * time.Second)),
+		models.NewMetric("srt.packet_loss_pct", 0.5, "device-001").WithTimestamp(now.Add(2 * time.Second)),
 	}
 
 	err := storage.StoreBatch(ctx, metrics)
@@ -184,10 +185,11 @@ func TestQuery_FilterByMetricName(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
+	now := time.Now()
 	metrics := []*models.Metric{
-		models.NewMetric("cpu.temperature", 50.0, "device-001"),
-		models.NewMetric("cpu.temperature", 51.0, "device-001"),
-		models.NewMetric("srt.packet_loss_pct", 0.5, "device-001"),
+		models.NewMetric("cpu.temperature", 50.0, "device-001").WithTimestamp(now),
+		models.NewMetric("cpu.temperature", 51.0, "device-001").WithTimestamp(now.Add(1 * time.Second)),
+		models.NewMetric("srt.packet_loss_pct", 0.5, "device-001").WithTimestamp(now.Add(2 * time.Second)),
 	}
 	storage.StoreBatch(ctx, metrics)
 
@@ -215,10 +217,11 @@ func TestQuery_FilterByDeviceID(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
+	now := time.Now()
 	metrics := []*models.Metric{
-		models.NewMetric("cpu.temperature", 50.0, "device-001"),
-		models.NewMetric("cpu.temperature", 51.0, "device-002"),
-		models.NewMetric("cpu.temperature", 52.0, "device-001"),
+		models.NewMetric("cpu.temperature", 50.0, "device-001").WithTimestamp(now),
+		models.NewMetric("cpu.temperature", 51.0, "device-002").WithTimestamp(now.Add(1 * time.Second)),
+		models.NewMetric("cpu.temperature", 52.0, "device-001").WithTimestamp(now.Add(2 * time.Second)),
 	}
 	storage.StoreBatch(ctx, metrics)
 
@@ -246,10 +249,11 @@ func TestQuery_Limit(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
+	now := time.Now()
 	metrics := []*models.Metric{
-		models.NewMetric("cpu.temperature", 50.0, "device-001"),
-		models.NewMetric("cpu.temperature", 51.0, "device-001"),
-		models.NewMetric("cpu.temperature", 52.0, "device-001"),
+		models.NewMetric("cpu.temperature", 50.0, "device-001").WithTimestamp(now),
+		models.NewMetric("cpu.temperature", 51.0, "device-001").WithTimestamp(now.Add(1 * time.Second)),
+		models.NewMetric("cpu.temperature", 52.0, "device-001").WithTimestamp(now.Add(2 * time.Second)),
 	}
 	storage.StoreBatch(ctx, metrics)
 
@@ -406,12 +410,13 @@ func TestGetMetricStats(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
+	now := time.Now()
 	metrics := []*models.Metric{
-		models.NewMetric("cpu.temperature", 50.0, "device-001"),
-		models.NewMetric("cpu.temperature", 51.0, "device-001"),
-		models.NewMetric("cpu.temperature", 52.0, "device-001"),
-		models.NewMetric("srt.packet_loss_pct", 0.5, "device-001"),
-		models.NewMetric("srt.packet_loss_pct", 1.0, "device-001"),
+		models.NewMetric("cpu.temperature", 50.0, "device-001").WithTimestamp(now),
+		models.NewMetric("cpu.temperature", 51.0, "device-001").WithTimestamp(now.Add(1 * time.Second)),
+		models.NewMetric("cpu.temperature", 52.0, "device-001").WithTimestamp(now.Add(2 * time.Second)),
+		models.NewMetric("srt.packet_loss_pct", 0.5, "device-001").WithTimestamp(now.Add(3 * time.Second)),
+		models.NewMetric("srt.packet_loss_pct", 1.0, "device-001").WithTimestamp(now.Add(4 * time.Second)),
 	}
 	storage.StoreBatch(ctx, metrics)
 
@@ -527,12 +532,14 @@ func TestConcurrentWrites(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
+	now := time.Now()
 
-	// Write metrics concurrently
+	// Write metrics concurrently with unique timestamps
 	done := make(chan bool)
 	for i := 0; i < 10; i++ {
 		go func(id int) {
-			metric := models.NewMetric("cpu.temperature", float64(50+id), "device-001")
+			metric := models.NewMetric("cpu.temperature", float64(50+id), "device-001").
+				WithTimestamp(now.Add(time.Duration(id) * time.Second))
 			storage.Store(ctx, metric)
 			done <- true
 		}(i)
