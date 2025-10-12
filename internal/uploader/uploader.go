@@ -198,8 +198,10 @@ func (u *HTTPUploader) uploadChunk(ctx context.Context, chunk *Chunk, chunkIndex
 	}
 
 	// Check status code
+	// M2 Simplified Strategy: 2xx = entire chunk succeeded
+	// Future enhancement: Parse VM response for partial success details
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return nil // Success
+		return nil // Success - entire chunk uploaded
 	}
 
 	// Handle specific status codes
