@@ -27,20 +27,21 @@ func sanitizeMetricName(name string) string {
 	// Replace dots with underscores
 	safe := strings.ReplaceAll(name, ".", "_")
 
-	// Add unit suffixes if missing
-	if strings.Contains(name, "temperature") && !strings.HasSuffix(safe, "_celsius") {
-		safe += "_celsius"
-	}
-	if strings.Contains(name, "bytes") && !strings.HasSuffix(safe, "_bytes") {
-		// Already has _bytes, keep it
-	} else if strings.Contains(name, "byte") && !strings.HasSuffix(safe, "_bytes") {
-		safe += "_bytes"
-	}
-
-	// Counters should end with _total
+	// Counters should end with _total (highest priority - counters don't need unit suffixes)
 	// Heuristic: metrics with "total", "count", or metrics that are cumulative
 	if isCounter(name) && !strings.HasSuffix(safe, "_total") {
 		safe += "_total"
+		return safe
+	}
+
+	// Add unit suffixes if missing (only for non-counters)
+	if strings.Contains(name, "temperature") && !strings.HasSuffix(safe, "_celsius") {
+		safe += "_celsius"
+	}
+
+	// Handle byte/bytes metrics - check for both "bytes" and "byte"
+	if (strings.Contains(name, "bytes") || strings.Contains(name, "byte")) && !strings.HasSuffix(safe, "_bytes") {
+		safe += "_bytes"
 	}
 
 	return safe

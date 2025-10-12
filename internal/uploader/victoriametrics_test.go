@@ -70,7 +70,7 @@ func TestBuildVMJSONL_MultipleMetrics(t *testing.T) {
 	}
 
 	// Verify each line is valid JSON
-	expectedNames := []string{"cpu_temperature_celsius", "memory_bytes_used", "network_tx_total"}
+	expectedNames := []string{"cpu_temperature_celsius", "memory_bytes_used_bytes", "network_tx_total"}
 	for i, expected := range expectedNames {
 		var vmMetric VMMetric
 		if err := json.Unmarshal(lines[i], &vmMetric); err != nil {
@@ -130,11 +130,17 @@ func TestSanitizeMetricName_BytesSuffix(t *testing.T) {
 		expected string
 	}{
 		{"memory.byte.used", "memory_byte_used_bytes"},
+		// Regression test for bug: metrics with ".bytes." in name should get _bytes suffix
+		{"memory.bytes.used", "memory_bytes_used_bytes"},
+		{"disk.bytes.read", "disk_bytes_read_total"}, // "read" is counter keyword - counters only get _total
+		{"network.bytes.available", "network_bytes_available_bytes"},
 		// Already has bytes but tx is a counter
 		{"network.tx.bytes", "network_tx_bytes_total"},
-		// Has bytes but written doesn't match "write" keyword exactly via Contains
-		// So it doesn't get _total (contains check works but this is edge case)
-		{"disk.bytes.write", "disk_bytes_write_total"}, // "write" matches
+		// Has bytes but write is a counter keyword
+		{"disk.bytes.write", "disk_bytes_write_total"}, // "write" is counter - only gets _total
+		// Should not double-add
+		{"memory_bytes", "memory_bytes"},
+		{"disk_read_bytes", "disk_read_bytes_total"}, // "read" is counter keyword - only gets _total
 	}
 
 	for _, tt := range tests {
