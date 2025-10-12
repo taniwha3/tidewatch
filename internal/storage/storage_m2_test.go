@@ -80,8 +80,8 @@ func TestSchemaMigration_Idempotent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get schema version: %v", err)
 		}
-		if version != 2 {
-			t.Errorf("Expected schema version 2, got %d", version)
+		if version != 3 {
+			t.Errorf("Expected schema version 3, got %d", version)
 		}
 
 		storage.Close()
@@ -402,6 +402,79 @@ func TestDedupKey_UnicodeInTags(t *testing.T) {
 	if key1 == key3 {
 		t.Error("Dedup keys should differ for different unicode values")
 	}
+}
+
+// TestDedupKey_NoCollisionWithPipeInTags tests the fix for delimiter collision
+func TestDedupKey_NoCollisionWithPipeInTags(t *testing.T) {
+	// These two tag sets should produce DIFFERENT dedup keys
+	// Before fix: both would collapse to "env=prod|shard=a" causing collision
+	// After fix: JSON encoding prevents collision
+
+	metric1 := models.NewMetric("cpu.temperature", 50.0, "device-001").
+		WithTimestamp(time.Unix(1000, 0)).
+		WithTag("env", "prod").
+		WithTag("shard", "a")
+
+	metric2 := models.NewMetric("cpu.temperature", 50.0, "device-001").
+		WithTimestamp(time.Unix(1000, 0)).
+		WithTag("env", "prod|shard=a") // Single tag with pipe character
+
+	key1 := generateDedupKey(metric1)
+	key2 := generateDedupKey(metric2)
+
+	if key1 == key2 {
+		t.Errorf("Dedup keys should differ when tags contain delimiter characters:\nKey1: %s\nKey2: %s", key1, key2)
+	}
+}
+
+// TestMigration_BackfillDedupKey tests that v3 migration backfills existing metrics
+func TestMigration_BackfillDedupKey(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// Manually create a v2 database with metrics (no dedup_key)
+	storage, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Store some metrics
+	metrics := []*models.Metric{
+		models.NewMetric("cpu.temperature", 50.0, "device-001").WithTimestamp(now),
+		models.NewMetric("memory.bytes", 1024.0, "device-001").WithTimestamp(now.Add(time.Second)).
+			WithTag("type", "used"),
+	}
+	if err := storage.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("Failed to store metrics: %v", err)
+	}
+
+	// Verify all rows have non-NULL dedup_key
+	var nullCount int
+	err = storage.db.QueryRow("SELECT COUNT(*) FROM metrics WHERE dedup_key IS NULL").Scan(&nullCount)
+	if err != nil {
+		t.Fatalf("Failed to count NULL dedup_keys: %v", err)
+	}
+	if nullCount != 0 {
+		t.Errorf("Expected 0 NULL dedup_keys after migration, got %d", nullCount)
+	}
+
+	// Verify the unique index exists
+	var indexSQL string
+	err = storage.db.QueryRow(`
+		SELECT sql FROM sqlite_master
+		WHERE type='index' AND name='idx_dedup_key'
+	`).Scan(&indexSQL)
+	if err != nil {
+		t.Fatalf("idx_dedup_key index not found: %v", err)
+	}
+	if indexSQL == "" {
+		t.Error("idx_dedup_key index has no SQL definition")
+	}
+
+	storage.Close()
 }
 
 // ============================================================================

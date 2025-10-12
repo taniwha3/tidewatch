@@ -145,9 +145,6 @@ func migrateSchema(db *sql.DB) error {
 				ALTER TABLE metrics ADD COLUMN dedup_key TEXT;
 				ALTER TABLE metrics ADD COLUMN tags_json TEXT;
 
-				-- Create unique index on dedup_key for idempotency
-				CREATE UNIQUE INDEX IF NOT EXISTS idx_dedup_key ON metrics(dedup_key);
-
 				-- Index for faster queries on name+device+time
 				CREATE INDEX IF NOT EXISTS idx_name_dev_time ON metrics(metric_name, device_id, timestamp_ms);
 
@@ -168,6 +165,14 @@ func migrateSchema(db *sql.DB) error {
 				CREATE INDEX IF NOT EXISTS idx_checkpoint_batch ON upload_checkpoints(batch_id);
 			`,
 		},
+		{
+			version: 3,
+			sql: `
+				-- Backfill dedup_key for existing rows
+				-- For legacy metrics without tags, generate dedup key from name|timestamp|device
+				-- NOTE: This migration is executed via migrateV3Backfill() due to custom logic needs
+			`,
+		},
 	}
 
 	for _, migration := range migrations {
@@ -181,6 +186,14 @@ func migrateSchema(db *sql.DB) error {
 			if _, err := tx.Exec(migration.sql); err != nil {
 				tx.Rollback()
 				return fmt.Errorf("failed to apply migration %d: %w", migration.version, err)
+			}
+
+			// V3 migration needs custom backfill logic
+			if migration.version == 3 {
+				if err := migrateV3Backfill(tx); err != nil {
+					tx.Rollback()
+					return fmt.Errorf("failed to backfill dedup_key in migration 3: %w", err)
+				}
 			}
 
 			// Record migration
@@ -199,33 +212,120 @@ func migrateSchema(db *sql.DB) error {
 	return nil
 }
 
+// migrateV3Backfill backfills dedup_key for existing metrics from v1/v2
+func migrateV3Backfill(tx *sql.Tx) error {
+	// Query all metrics with NULL dedup_key
+	rows, err := tx.Query(`
+		SELECT id, timestamp_ms, metric_name, device_id, tags_json
+		FROM metrics
+		WHERE dedup_key IS NULL
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to query metrics for backfill: %w", err)
+	}
+	defer rows.Close()
+
+	// Prepare update statement
+	stmt, err := tx.Prepare("UPDATE metrics SET dedup_key = ? WHERE id = ?")
+	if err != nil {
+		return fmt.Errorf("failed to prepare update statement: %w", err)
+	}
+	defer stmt.Close()
+
+	// Process each legacy metric
+	for rows.Next() {
+		var id int64
+		var timestampMs int64
+		var metricName, deviceID string
+		var tagsJSON sql.NullString
+
+		if err := rows.Scan(&id, &timestampMs, &metricName, &deviceID, &tagsJSON); err != nil {
+			return fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Reconstruct metric for dedup key generation
+		metric := &models.Metric{
+			Name:        metricName,
+			TimestampMs: timestampMs,
+			DeviceID:    deviceID,
+			Tags:        make(map[string]string),
+		}
+
+		// Deserialize tags if present
+		if tagsJSON.Valid && tagsJSON.String != "" {
+			if err := json.Unmarshal([]byte(tagsJSON.String), &metric.Tags); err != nil {
+				return fmt.Errorf("failed to unmarshal tags for metric %d: %w", id, err)
+			}
+		}
+
+		// Generate dedup key using the fixed algorithm
+		dedupKey := generateDedupKey(metric)
+
+		// Update the row
+		if _, err := stmt.Exec(dedupKey, id); err != nil {
+			return fmt.Errorf("failed to update dedup_key for metric %d: %w", id, err)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	// Now create the unique index (after backfill is complete)
+	if _, err := tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_dedup_key ON metrics(dedup_key)"); err != nil {
+		return fmt.Errorf("failed to create unique index: %w", err)
+	}
+
+	return nil
+}
+
 // generateSessionID creates a unique session identifier
 func generateSessionID() string {
 	return fmt.Sprintf("session_%d_%d", os.Getpid(), time.Now().UnixNano())
 }
 
 // generateDedupKey creates a unique deduplication key for a metric
-// Format: sha256(name|timestamp_ms|device_id|canonical_tags)
+// Uses JSON encoding to avoid delimiter collisions
+// Format: sha256(json({name, timestamp_ms, device_id, tags}))
 func generateDedupKey(metric *models.Metric) string {
-	// Sort tags canonically
-	keys := make([]string, 0, len(metric.Tags))
+	// Create a canonical structure for hashing
+	// Using a struct ensures consistent field ordering
+	type dedupData struct {
+		Name        string            `json:"name"`
+		TimestampMs int64             `json:"timestamp_ms"`
+		DeviceID    string            `json:"device_id"`
+		Tags        map[string]string `json:"tags"`
+	}
+
+	// Sort tags into a new map for canonical ordering
+	sortedTags := make(map[string]string, len(metric.Tags))
+	tagKeys := make([]string, 0, len(metric.Tags))
 	for k := range metric.Tags {
-		keys = append(keys, k)
+		tagKeys = append(tagKeys, k)
 	}
-	sort.Strings(keys)
+	sort.Strings(tagKeys)
 
-	// Build canonical string
-	var parts []string
-	parts = append(parts, metric.Name)
-	parts = append(parts, fmt.Sprintf("%d", metric.TimestampMs))
-	parts = append(parts, metric.DeviceID)
-
-	for _, k := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%s", k, metric.Tags[k]))
+	for _, k := range tagKeys {
+		sortedTags[k] = metric.Tags[k]
 	}
 
-	data := strings.Join(parts, "|")
-	hash := sha256.Sum256([]byte(data))
+	data := dedupData{
+		Name:        metric.Name,
+		TimestampMs: metric.TimestampMs,
+		DeviceID:    metric.DeviceID,
+		Tags:        sortedTags,
+	}
+
+	// Marshal to JSON (which handles escaping properly)
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		// This should never happen with valid metric data, but fall back to a unique key
+		// based on timestamp and a random component if it does
+		jsonBytes = []byte(fmt.Sprintf("fallback_%d_%d", metric.TimestampMs, time.Now().UnixNano()))
+	}
+
+	// Hash the JSON representation
+	hash := sha256.Sum256(jsonBytes)
 	return hex.EncodeToString(hash[:])
 }
 
