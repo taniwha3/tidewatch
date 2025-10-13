@@ -3,34 +3,55 @@ device:
 
 storage:
   path: /var/lib/belabox-metrics/metrics.db
+  wal_checkpoint_interval: 1h        # How often to checkpoint WAL
+  wal_checkpoint_size_mb: 64         # Checkpoint when WAL exceeds this size
 
 remote:
-  url: http://localhost:8080/api/metrics
+  url: http://localhost:8428/api/v1/import  # VictoriaMetrics import endpoint
   enabled: true
   upload_interval: 30s
+  batch_size: 2500                   # Max metrics per batch query
+  chunk_size: 50                     # Metrics per chunk upload
+  retry:
+    enabled: true
+    max_attempts: 3
+    initial_backoff: 1s
+    max_backoff: 30s
+    backoff_multiplier: 2.0
+    jitter_percent: 20               # ±20% jitter
 
 monitoring:
-  clock_skew_url: http://localhost:8428/health
+  clock_skew_url: http://localhost:8428/health  # Separate URL for clock skew check
+  clock_skew_check_interval: 5m                  # How often to check clock skew
+  clock_skew_warn_threshold_ms: 2000             # Warn when skew exceeds this
   health_address: ":9100"
 
 logging:
   level: info      # debug, info, warn, error
   format: console  # json, console
 
+# System metrics collectors (Milestone 2)
 metrics:
   - name: cpu.temperature
+    interval: 30s
+    enabled: true
+
+  - name: cpu.usage
+    interval: 30s
+    enabled: true
+
+  - name: memory.usage
+    interval: 30s
+    enabled: true
+
+  - name: disk.io
+    interval: 30s
+    enabled: true
+
+  - name: network.traffic
     interval: 30s
     enabled: true
 
   - name: srt.packet_loss
     interval: 5s
     enabled: true
-
-  # Bonus metrics (disabled for M1)
-  - name: cpu.usage
-    interval: 30s
-    enabled: false
-
-  - name: memory.available
-    interval: 30s
-    enabled: false
