@@ -6,28 +6,61 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
+User=metrics
+Group=metrics
 ExecStart=/usr/local/bin/metrics-collector -config /etc/belabox-metrics/config.yaml
 
 # Restart policy
 Restart=always
 RestartSec=10s
 
-# Resource limits (for embedded device)
-MemoryLimit=300M
-CPUQuota=15%
+# Watchdog configuration (requires Type=notify integration in main.go)
+# WatchdogSec=60s
+
+# Resource limits (Milestone 2 requirements)
+MemoryMax=200M
+CPUQuota=20%
 
 # Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=metrics-collector
 
-# Security hardening
+# Security hardening - Privilege restrictions
 NoNewPrivileges=true
 PrivateTmp=true
+
+# Security hardening - Filesystem access
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/belabox-metrics
+ReadOnlyPaths=/etc/belabox-metrics
+
+# Security hardening - Kernel features
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+
+# Security hardening - Network restrictions
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+
+# Security hardening - System calls
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+
+# Security hardening - Misc
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+PrivateDevices=false
+DevicePolicy=closed
+DeviceAllow=/dev/null rw
+DeviceAllow=/dev/urandom r
 
 [Install]
 WantedBy=multi-user.target

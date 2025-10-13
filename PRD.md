@@ -1039,6 +1039,68 @@ slog.Warn("Clock skew detected",
 
 **Status:** Clock skew detection is functional in M2 with working auth, GET method, and warning emission. Refinements scheduled for M3.
 
+#### [P1] Watchdog and Process Locking Integration — `internal/watchdog`, `internal/lockfile`
+
+**Problem:** Milestone 2 implemented the `internal/watchdog` and `internal/lockfile` packages with comprehensive unit tests (8 and 9 tests respectively), but they are not yet integrated into the main collector binary. The systemd service file is prepared but watchdog is commented out pending integration.
+
+**Current Status (M2):**
+- ✅ `internal/watchdog` package complete with coreos/go-systemd integration
+- ✅ `internal/lockfile` package complete with flock-based locking
+- ✅ Unit tests passing (17 total tests)
+- ✅ Systemd service updated with security hardening
+- ⏸️ Type=simple (watchdog requires Type=notify)
+- ⏸️ WatchdogSec commented out
+
+**Required for M3 Integration:**
+
+1. **Watchdog Integration:**
+   ```go
+   // main.go startup
+   watchdogPinger := watchdog.NewPinger(logger)
+
+   // Start watchdog ping loop (does NOT send READY)
+   go watchdogPinger.Start(ctx)
+
+   // ... perform initialization (open database, start collectors, etc.) ...
+
+   // Send READY after initialization complete
+   watchdogPinger.NotifyReady()
+
+   // main.go shutdown
+   watchdogPinger.NotifyStopping()
+   ```
+
+2. **Process Locking Integration:**
+   ```go
+   // main.go startup (before opening database)
+   lockPath := lockfile.GetLockPath(cfg.Storage.Path)
+   lock, err := lockfile.Acquire(lockPath)
+   if err != nil {
+       log.Fatal("Another instance is already running: %v", err)
+   }
+   defer lock.Release()
+   ```
+
+3. **Systemd Service Updates:**
+   ```ini
+   # Change service type
+   Type=notify  # Was: simple
+
+   # Uncomment watchdog
+   WatchdogSec=60s
+   ```
+
+**Testing Requirements (M3):**
+- Verify sd_notify READY/WATCHDOG/STOPPING messages sent correctly
+- Test multiple instance prevention (second process exits with clear error)
+- Test watchdog timeout kills and restarts hung process
+- Verify clean lock release on normal shutdown
+- Verify lock cleanup after crash (flock auto-releases)
+
+**Priority:** P1 - Required for production deployment to ensure process reliability and prevent multiple instances.
+
+**Deployment Note:** Once integrated in M3, deployment documentation should be updated to include systemd-notify verification and lock file monitoring.
+
 ---
 
 ## Success Criteria

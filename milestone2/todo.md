@@ -389,38 +389,54 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Document health status semantics (ok/degraded/error)
 - [x] Document per-zone temperature metrics
 - [x] Document clock skew URL configuration
+- [x] Create `docs/deployment.md` with production deployment guide
+- [x] Document security hardening (user/group, permissions, systemd directives)
+- [x] Document health check endpoints and monitoring integration
+- [x] Document troubleshooting procedures and backup/recovery
 - [ ] Update MILESTONE-2.md acceptance checklist
 
 ## Security & Operations
 
-### Security Hardening
-- [ ] Create `metrics` user and group (`useradd -r -s /bin/false metrics`)
-- [ ] Update systemd/metrics-collector.service with security hardening
-- [ ] Set User=metrics, Group=metrics
-- [ ] Add NoNewPrivileges=true
-- [ ] Add ProtectSystem=strict, ProtectHome=true
-- [ ] Add PrivateTmp=true
-- [ ] Add resource limits: MemoryMax=200M, CPUQuota=20%
-- [ ] Add RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-- [ ] Add RestrictNamespaces=true
-- [ ] Add ReadWritePaths=/var/lib/belabox-metrics
-- [ ] Add ReadOnlyPaths=/etc/belabox-metrics
-- [ ] Set permissions: `chown -R metrics:metrics /var/lib/belabox-metrics`
-- [ ] Set token file permissions: `chmod 600 /etc/belabox-metrics/api-token`
+### Security Hardening ✅ COMPLETE (code ready, needs deployment)
+- [x] Update systemd/metrics-collector.service with comprehensive security hardening
+- [x] Set User=metrics, Group=metrics
+- [x] Add NoNewPrivileges=true
+- [x] Add ProtectSystem=strict, ProtectHome=true
+- [x] Add PrivateTmp=true
+- [x] Add resource limits: MemoryMax=200M, CPUQuota=20%
+- [x] Add RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+- [x] Add RestrictNamespaces=true
+- [x] Add ReadWritePaths=/var/lib/belabox-metrics
+- [x] Add ReadOnlyPaths=/etc/belabox-metrics
+- [x] Add kernel protections: ProtectKernelTunables, ProtectKernelModules, ProtectKernelLogs
+- [x] Add SystemCallFilter restrictions
+- [x] Create docs/deployment.md with deployment instructions
+- [ ] **TODO (deployment)**: Create `metrics` user and group on target system
+- [ ] **TODO (deployment)**: Set directory permissions: `chown -R metrics:metrics /var/lib/belabox-metrics`
+- [ ] **TODO (deployment)**: Set token file permissions: `chmod 600 /etc/belabox-metrics/api-token`
 
-### Systemd Integration
-- [ ] Add WatchdogSec=60s to systemd unit
-- [ ] Implement `startWatchdogPinger()` in Go
-- [ ] Use coreos/go-systemd for watchdog notifications
-- [ ] Ping at half the watchdog interval (30s)
-- [ ] Send WATCHDOG=1 to systemd
-- [ ] Test watchdog kills and restarts on hang
+### Systemd Integration ✅ COMPLETE (code ready, integration deferred to M3)
+- [x] Implement `internal/watchdog` package with coreos/go-systemd
+- [x] Ping at half the watchdog interval (30s default)
+- [x] Send READY/STOPPING/WATCHDOG notifications
+- [x] Unit tests: 8 tests covering enabled/disabled modes
+- [x] Systemd service file prepared (Type=simple until integration)
+- [x] Add go-systemd dependency (coreos/go-systemd/v22)
+- [x] Correct notification order: Start() does NOT send READY, only NotifyReady() does
+- [x] Prevents premature READY before initialization completes
+- **Note:** Main.go integration deferred to Milestone 3 (see PRD.md "Watchdog and Process Locking Integration")
 
-### Process Locking
-- [ ] Implement `AcquireProcessLock()` using flock
-- [ ] Non-blocking lock on database path
-- [ ] Write PID to lock file for debugging
-- [ ] Release lock on process exit
+### Process Locking ✅ COMPLETE (code ready, integration deferred to M3)
+- [x] Implement `internal/lockfile` package using flock
+- [x] Non-blocking lock on database path
+- [x] Write PID to lock file for debugging
+- [x] Automatic lock release on process exit
+- [x] Unit tests: 12 tests covering acquire/release, concurrent access, edge cases
+- [x] Edge case handling: empty files, whitespace-only, missing newlines
+- [x] Safe string trimming to prevent panic on malformed lock files
+- [x] Lock file persistence: files NOT removed on release to prevent inode race conditions
+- [x] Inode reuse verified: same file/inode used across lock acquisition cycles
+- **Note:** Main.go integration deferred to Milestone 3 (see PRD.md "Watchdog and Process Locking Integration")
 
 ### Configuration ✅ COMPLETE
 - [x] Update configs/config.yaml with all M2 options
@@ -582,7 +598,7 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [ ] Process lock prevents double-run
 
 ### Testing
-**Unit Tests**: ~80+ tests ✅
+**Unit Tests**: ~95+ tests ✅
 - [x] All unit tests pass across all packages
 - [x] Config parsing and defaults verified (12 tests)
 - [x] Health threshold calculations verified (20 tests)
@@ -595,6 +611,9 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Failed upload handling verified (TestUploadMetrics_DoesNotMarkOnFailure)
 - [x] Batch limit verified (TestUploadMetrics_BatchLimit)
 - [x] QueryUnuploaded filtering verified (only returns value_type=0)
+- [x] Watchdog tests: 8 tests (enabled/disabled modes, systemd detection)
+- [x] Lockfile tests: 12 tests (acquire/release, concurrent access, edge cases)
+- [x] Edge case handling: empty lock files, whitespace, missing newlines
 
 **Integration Tests**: 11/72 complete (~15%) - See "Expanded Test Coverage" section for full breakdown
 - [x] No duplicate uploads verified (TestNoDuplicateUploads_SameBatchRetried)
