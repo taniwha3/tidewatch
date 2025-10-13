@@ -52,6 +52,9 @@ type Thresholds struct {
 	PendingOKLimit       int64 `json:"pending_ok_limit"`       // <5000
 	PendingDegradedLimit int64 `json:"pending_degraded_limit"` // 5000-10000
 	PendingErrorLimit    int64 `json:"pending_error_limit"`    // >10000
+
+	// Clock skew threshold (milliseconds)
+	ClockSkewThresholdMs int64 `json:"clock_skew_threshold_ms"` // Default: 2000ms
 }
 
 // DefaultThresholds returns sensible default thresholds
@@ -64,6 +67,7 @@ func DefaultThresholds() Thresholds {
 		PendingOKLimit:         5000,
 		PendingDegradedLimit:   10000,
 		PendingErrorLimit:      10000,
+		ClockSkewThresholdMs:   2000,  // 2 seconds default
 	}
 }
 
@@ -94,6 +98,9 @@ func ThresholdsFromUploadInterval(uploadInterval time.Duration) Thresholds {
 		PendingOKLimit:         5000,
 		PendingDegradedLimit:   10000,
 		PendingErrorLimit:      10000,
+
+		// Clock skew threshold (default 2000ms, can be overridden)
+		ClockSkewThresholdMs:   2000,
 	}
 }
 
@@ -216,10 +223,16 @@ func (c *Checker) UpdateClockSkewStatus(skewMs int64, err error) {
 		},
 	}
 
+	// Get threshold from config (default: 2000ms)
+	threshold := c.thresholds.ClockSkewThresholdMs
+	if threshold == 0 {
+		threshold = 2000 // Fallback to default if not set
+	}
+
 	if err != nil {
 		status.Status = StatusError
 		status.Message = err.Error()
-	} else if skewMs > 2000 || skewMs < -2000 {
+	} else if skewMs > threshold || skewMs < -threshold {
 		status.Status = StatusDegraded
 		status.Message = "clock skew exceeds threshold"
 	} else {

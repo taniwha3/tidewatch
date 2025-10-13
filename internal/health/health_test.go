@@ -1038,6 +1038,111 @@ func TestSubSecondIntervalHealthBehavior(t *testing.T) {
 	}
 }
 
+// TestConfigurableClockSkewThreshold tests that clock skew threshold can be configured
+func TestConfigurableClockSkewThreshold(t *testing.T) {
+	tests := []struct {
+		name           string
+		threshold      int64
+		skewMs         int64
+		expectedStatus Status
+	}{
+		{
+			name:           "custom 5000ms threshold - within threshold",
+			threshold:      5000,
+			skewMs:         4500,
+			expectedStatus: StatusOK,
+		},
+		{
+			name:           "custom 5000ms threshold - exceeds threshold positive",
+			threshold:      5000,
+			skewMs:         5500,
+			expectedStatus: StatusDegraded,
+		},
+		{
+			name:           "custom 5000ms threshold - exceeds threshold negative",
+			threshold:      5000,
+			skewMs:         -5500,
+			expectedStatus: StatusDegraded,
+		},
+		{
+			name:           "custom 1000ms threshold - within threshold",
+			threshold:      1000,
+			skewMs:         999,
+			expectedStatus: StatusOK,
+		},
+		{
+			name:           "custom 1000ms threshold - exceeds threshold",
+			threshold:      1000,
+			skewMs:         1001,
+			expectedStatus: StatusDegraded,
+		},
+		{
+			name:           "zero threshold uses default 2000ms - ok",
+			threshold:      0,
+			skewMs:         1500,
+			expectedStatus: StatusOK,
+		},
+		{
+			name:           "zero threshold uses default 2000ms - degraded",
+			threshold:      0,
+			skewMs:         2500,
+			expectedStatus: StatusDegraded,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create thresholds with custom clock skew threshold
+			thresholds := DefaultThresholds()
+			thresholds.ClockSkewThresholdMs = tt.threshold
+
+			checker := NewChecker(thresholds)
+			checker.UpdateClockSkewStatus(tt.skewMs, nil)
+
+			report := checker.GetReport()
+			component, exists := report.Components["time"]
+
+			if !exists {
+				t.Fatal("Time component not found")
+			}
+
+			if component.Status != tt.expectedStatus {
+				t.Errorf("Expected status %s, got %s (threshold=%dms, skew=%dms)",
+					tt.expectedStatus, component.Status, tt.threshold, tt.skewMs)
+			}
+		})
+	}
+}
+
+// TestClockSkewThresholdInThresholdsFromUploadInterval tests that clock skew threshold
+// is properly set when creating thresholds from upload interval
+func TestClockSkewThresholdInThresholdsFromUploadInterval(t *testing.T) {
+	uploadInterval := 30 * time.Second
+	thresholds := ThresholdsFromUploadInterval(uploadInterval)
+
+	// Should have default 2000ms clock skew threshold
+	if thresholds.ClockSkewThresholdMs != 2000 {
+		t.Errorf("Expected default clock skew threshold 2000ms, got %dms", thresholds.ClockSkewThresholdMs)
+	}
+
+	// Test that it's actually used in health checks
+	checker := NewChecker(thresholds)
+
+	// Just under threshold - should be OK
+	checker.UpdateClockSkewStatus(1999, nil)
+	report := checker.GetReport()
+	if report.Components["time"].Status != StatusOK {
+		t.Errorf("Expected OK for 1999ms skew, got %s", report.Components["time"].Status)
+	}
+
+	// Just over threshold - should be DEGRADED
+	checker.UpdateClockSkewStatus(2001, nil)
+	report = checker.GetReport()
+	if report.Components["time"].Status != StatusDegraded {
+		t.Errorf("Expected DEGRADED for 2001ms skew, got %s", report.Components["time"].Status)
+	}
+}
+
 // Helper function
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsHelper(s, substr))
