@@ -1,18 +1,18 @@
 # Thugshells Metrics Collector
 
-A lightweight, high-performance metrics collection system designed for Orange Pi devices running Belabox IRL streaming software. Collects system metrics, stores them locally in SQLite, and uploads to a remote endpoint.
+A lightweight, high-performance metrics collection system designed for Orange Pi devices running Belabox IRL streaming software. Collects comprehensive system metrics, stores them locally in SQLite, and uploads to VictoriaMetrics.
 
 ## Features
 
-- **Lightweight**: Pure Go implementation, single binary deployment
-- **Reliable**: SQLite WAL mode with ARM SBC tuning for embedded devices
-- **Flexible**: YAML configuration with per-metric collection intervals
-- **Tested**: Comprehensive unit and integration tests (50+ tests, all passing)
+- **Lightweight**: Pure Go implementation, single binary deployment (<10 MB)
+- **Reliable**: SQLite WAL mode with ARM SBC tuning, duplicate detection, automatic retry
+- **Comprehensive**: 8+ system metrics (CPU, memory, disk, network, temperature)
+- **Observable**: Built-in meta-metrics, health monitoring, clock skew detection
+- **Production-ready**: Health endpoints, structured logging, security hardening
+- **Tested**: Comprehensive unit and integration tests (100+ tests, all passing)
 - **Cross-platform**: Runs on macOS (development) and Linux ARM64 (production)
 
 ## Milestone 1: Complete ✅
-
-Milestone 1 implements a minimal viable pipeline with:
 
 - ✅ 2 metrics: CPU temperature + SRT packet loss (mock)
 - ✅ SQLite storage with WAL mode
@@ -21,6 +21,16 @@ Milestone 1 implements a minimal viable pipeline with:
 - ✅ Cross-compilation for ARM64
 - ✅ Systemd service with auto-restart
 - ✅ Install script for deployment
+
+## Milestone 2: Complete ✅
+
+- ✅ **System Metrics**: CPU usage, memory, disk I/O, network traffic
+- ✅ **VictoriaMetrics Integration**: JSONL import, PromQL queries
+- ✅ **Upload Reliability**: Chunked uploads, jittered backoff, duplicate prevention
+- ✅ **Health Monitoring**: Graduated status (ok/degraded/error), HTTP endpoints
+- ✅ **Meta-Metrics**: Observability of the collector itself
+- ✅ **Clock Skew Detection**: Time synchronization monitoring
+- ✅ **Structured Logging**: JSON/console formats with contextual fields
 
 ## Project Structure
 
@@ -44,7 +54,45 @@ thugshells/
 └── PRD.md                     # Product requirements document
 ```
 
-## Quick Start (macOS Development)
+## Quick Start with VictoriaMetrics (Milestone 2)
+
+### 1. Start VictoriaMetrics
+
+```bash
+docker compose up -d victoria
+```
+
+VictoriaMetrics UI: http://localhost:8428/vmui
+
+### 2. Build and Run Collector
+
+```bash
+# Build
+./scripts/build.sh
+
+# Run with default config (sends to VictoriaMetrics)
+./bin/metrics-collector-darwin -config configs/config.yaml
+```
+
+### 3. Query Metrics
+
+```bash
+# Using VictoriaMetrics UI: http://localhost:8428/vmui
+
+# Or using curl:
+curl -s 'http://localhost:8428/api/v1/query?query=cpu_usage_percent' | jq .
+
+# List all metrics:
+curl -s 'http://localhost:8428/api/v1/label/__name__/values' | jq .
+```
+
+### 4. Check Health
+
+```bash
+curl http://localhost:9100/health | jq .
+```
+
+## Quick Start (Milestone 1 - Simple Testing)
 
 ### 1. Build
 
@@ -52,7 +100,7 @@ thugshells/
 ./scripts/build.sh
 ```
 
-### 2. Run Receiver (in terminal 1)
+### 2. Run Simple Receiver (in terminal 1)
 
 ```bash
 ./bin/metrics-receiver-darwin -port 9090
@@ -61,38 +109,14 @@ thugshells/
 ### 3. Run Collector (in terminal 2)
 
 ```bash
-# Create test config
-mkdir -p test-data
-cat > test-config.yaml <<EOF
-device:
-  id: test-device-001
-
-storage:
-  path: ./test-data/metrics.db
-
-remote:
-  url: http://localhost:9090/api/metrics
-  enabled: true
-  upload_interval: 10s
-
-metrics:
-  - name: cpu.temperature
-    interval: 5s
-    enabled: true
-
-  - name: srt.packet_loss
-    interval: 3s
-    enabled: true
-EOF
-
-# Run collector
-./bin/metrics-collector-darwin -config test-config.yaml
+./bin/metrics-collector-darwin -config configs/config.yaml
 ```
 
-### 4. Query Metrics
+### 4. Query SQLite Directly
 
 ```bash
-sqlite3 test-data/metrics.db "SELECT * FROM metrics ORDER BY timestamp_ms DESC LIMIT 10"
+sqlite3 /var/lib/belabox-metrics/metrics.db \
+  "SELECT metric_name, metric_value FROM metrics ORDER BY timestamp_ms DESC LIMIT 10"
 ```
 
 ## Deployment to Orange Pi
@@ -186,25 +210,65 @@ go test ./... -cover
 
 ## Metrics Collected
 
-### Milestone 1
+### System Metrics (Milestone 2)
 
-1. **cpu.temperature** (real on Linux, mock on macOS)
-   - Reads from `/sys/class/thermal/thermal_zone0/temp`
-   - Interval: 30s
-   - Unit: degrees Celsius
+1. **CPU Usage** (`cpu_usage_percent`, `cpu_core_usage_percent`)
+   - Overall and per-core CPU usage with delta calculation
+   - Wraparound detection, first-sample skip
+   - Mock implementation on macOS
 
-2. **srt.packet_loss_pct** (mock in M1, real in M2)
-   - Mock: random 0-5% packet loss
-   - Interval: 5s
-   - Unit: percentage (0-100)
+2. **Memory** (`memory_used_bytes`, `memory_available_bytes`, `memory_total_bytes`)
+   - Canonical used calculation: MemTotal - MemAvailable
+   - Swap metrics: `memory_swap_used_bytes`, `memory_swap_total_bytes`
+   - Mock implementation on macOS
 
-### Milestone 2+ (Planned)
+3. **Disk I/O** (`disk_read_ops_total`, `disk_write_ops_total`, `disk_read_bytes_total`, `disk_write_bytes_total`)
+   - Reads/writes in ops/s and bytes/s
+   - Time metrics: `disk_read_time_ms_total`, `disk_write_time_ms_total`
+   - Per-device metrics with whole-device filtering (no partitions)
+   - Sector→byte conversion (512 bytes per sector per kernel docs)
+
+4. **Network** (`network_rx_bytes_total`, `network_tx_bytes_total`, `network_rx_packets_total`, `network_tx_packets_total`)
+   - Per-interface traffic counters
+   - Error counters: `network_rx_errors_total`, `network_tx_errors_total`
+   - Wraparound detection
+   - Cardinality guard: max 32 interfaces (prevents explosion)
+   - Excludes: lo, docker*, veth*, br-*, wlan.*mon, virbr.*, etc.
+   - Mock implementation on macOS
+
+5. **Temperature** (`cpu_temperature_celsius`)
+   - Reads from `/sys/class/thermal/thermal_zone*/temp`
+   - Per-zone metrics with zone name tags
+   - Mock implementation on macOS
+
+### Meta-Metrics (Observability)
+
+6. **Collection Metrics**
+   - `collector_metrics_collected_total`: Total metrics collected
+   - `collector_metrics_failed_total`: Collection failures
+   - `collector_collection_duration_seconds`: Collection time (p50, p95, p99)
+
+7. **Upload Metrics**
+   - `uploader_metrics_uploaded_total`: Total metrics uploaded
+   - `uploader_upload_failures_total`: Upload failures
+   - `uploader_upload_duration_seconds`: Upload time (p50, p95, p99)
+
+8. **Storage Metrics**
+   - `storage_database_size_bytes`: SQLite DB size
+   - `storage_wal_size_bytes`: WAL file size
+   - `storage_metrics_pending_upload`: Pending upload count
+
+9. **Time Synchronization**
+   - `time_skew_ms`: Clock skew relative to server (positive = local ahead)
+   - Separate URL check every 5 minutes
+   - Warns if skew > 2 seconds
+
+### Milestone 3+ (Planned)
 
 - Real SRT stats from server-side SRTLA receiver
 - Encoder metrics (from journald logs)
 - HDMI input metrics (via v4l2-ctl)
-- Network metrics (bandwidth, latency)
-- System metrics (CPU usage, memory, disk)
+- Load averages, system uptime
 
 ## Architecture
 
@@ -307,12 +371,18 @@ metrics:
     enabled: true
 ```
 
+## Documentation
+
+- **[Health Monitoring](docs/health-monitoring.md)** - Health endpoints, status levels, alerting
+- **[VictoriaMetrics Setup](docs/victoriametrics-setup.md)** - Installation, querying, PromQL examples
+- **[Belabox Integration](docs/belabox-integration.md)** - Orange Pi deployment notes
+- **[Milestone 1 Spec](MILESTONE-1.md)** - M1 requirements and acceptance criteria
+- **[Milestone 2 Spec](MILESTONE-2.md)** - M2 requirements and acceptance criteria (in progress)
+- **[Product Requirements](PRD.md)** - Full product roadmap
+
 ## Future Milestones
 
-See `PRD.md` and `MILESTONE-1.md` for detailed roadmap.
-
-**Milestone 2**: Server-side SRT stats, encoder metrics, retry logic
-**Milestone 3**: VictoriaMetrics integration, Grafana dashboards
+**Milestone 3**: Real SRT stats, encoder metrics, alerting
 **Milestone 4**: Priority queue, backfill, data retention
 
 ## License
