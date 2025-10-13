@@ -38,6 +38,7 @@ Thumbs.db
 
 # Local development
 /var/lib/belabox-metrics/
+/data/
 *.db
 *.db-wal
 *.db-shm

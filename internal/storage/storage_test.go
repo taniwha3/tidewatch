@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -620,5 +621,55 @@ func BenchmarkQuery(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		storage.Query(ctx, QueryOptions{Limit: 100})
+	}
+}
+
+// TestNewSQLiteStorage_URIPath verifies that SQLite URI paths are supported
+// and that directory creation is skipped for URI-style database paths.
+// This prevents creating directories literally named "file:..." which would
+// break deployments using DSN parameters like "file:path?cache=shared".
+func TestNewSQLiteStorage_URIPath(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Manually create the database directory (simulating pre-existing setup)
+	dbDir := filepath.Join(tmpDir, "metrics")
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+
+	// Use a URI-style path with query parameters
+	dbPath := fmt.Sprintf("file:%s?cache=shared", filepath.Join(dbDir, "test.db"))
+
+	storage, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage with URI path: %v", err)
+	}
+	defer storage.Close()
+
+	if storage == nil {
+		t.Fatal("Expected non-nil storage")
+	}
+
+	// Verify the database works
+	ctx := context.Background()
+	metric := models.NewMetric("cpu.temperature", 52.3, "test-device")
+
+	err = storage.Store(ctx, metric)
+	if err != nil {
+		t.Fatalf("Store failed with URI path: %v", err)
+	}
+
+	count, err := storage.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 metric, got %d", count)
+	}
+
+	// Verify no "file:..." directory was created
+	badDir := filepath.Join(tmpDir, "file:metrics")
+	if _, err := os.Stat(badDir); !os.IsNotExist(err) {
+		t.Errorf("Found unexpected directory named 'file:metrics' - URI path handling is broken")
 	}
 }

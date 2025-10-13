@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -48,6 +49,16 @@ type SQLiteStorage struct {
 
 // NewSQLiteStorage creates a new SQLite storage instance
 func NewSQLiteStorage(dbPath string) (*SQLiteStorage, error) {
+	// Create parent directory if it doesn't exist
+	// Skip directory creation for SQLite URI paths (e.g., "file:path?mode=ro")
+	// to preserve URI support and avoid creating directories named "file:..."
+	if !strings.HasPrefix(dbPath, "file:") {
+		dir := filepath.Dir(dbPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create database directory: %w", err)
+		}
+	}
+
 	// Open database with SQLite-specific connection parameters
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
