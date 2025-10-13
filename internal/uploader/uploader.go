@@ -29,53 +29,81 @@ type Uploader interface {
 
 // HTTPUploader implements Uploader using HTTP POST to VictoriaMetrics
 type HTTPUploader struct {
-	url           string
-	deviceID      string
-	authToken     string
-	client        *http.Client
-	maxRetries    int
-	retryDelay    time.Duration
-	chunkSize     int
+	url               string
+	deviceID          string
+	authToken         string
+	client            *http.Client
+	maxRetries        int
+	retryDelay        time.Duration
+	maxBackoff        time.Duration
+	backoffMultiplier float64
+	jitterPercent     int
+	chunkSize         int
 }
 
 // HTTPUploaderConfig configures the HTTP uploader
 type HTTPUploaderConfig struct {
-	URL           string
-	DeviceID      string
-	AuthToken     string        // Optional bearer token
-	Timeout       time.Duration // Default: 30s
-	MaxRetries    int           // Default: 3
-	RetryDelay    time.Duration // Base delay for exponential backoff, default: 1s
-	ChunkSize     int           // Metrics per chunk, default: 50
+	URL               string
+	DeviceID          string
+	AuthToken         string        // Optional bearer token
+	Timeout           time.Duration // Default: 30s
+	MaxRetries        *int          // Default: 3. Use nil for default, &0 for explicitly 0 (no retries)
+	RetryDelay        time.Duration // Base delay for exponential backoff, default: 1s
+	MaxBackoff        time.Duration // Maximum backoff delay, default: 30s
+	BackoffMultiplier float64       // Backoff multiplier for exponential backoff, default: 2.0
+	JitterPercent     *int          // Jitter percentage (0-100), default: 20. Use nil for default, &0 for explicitly 0
+	ChunkSize         int           // Metrics per chunk, default: 50
 }
 
 // NewHTTPUploader creates a new HTTP uploader with default settings
 func NewHTTPUploader(url, deviceID string) *HTTPUploader {
+	maxRetries := 3
+	jitterPercent := 20
 	return NewHTTPUploaderWithConfig(HTTPUploaderConfig{
-		URL:        url,
-		DeviceID:   deviceID,
-		Timeout:    30 * time.Second,
-		MaxRetries: 3,
-		RetryDelay: 1 * time.Second,
-		ChunkSize:  50,
+		URL:           url,
+		DeviceID:      deviceID,
+		Timeout:       30 * time.Second,
+		MaxRetries:    &maxRetries,
+		RetryDelay:    1 * time.Second,
+		JitterPercent: &jitterPercent,
+		ChunkSize:     50,
 	})
 }
 
 // NewHTTPUploaderWithConfig creates a new HTTP uploader with custom configuration
+// MaxRetries: nil = use default (3), &0 = explicitly 0 (no retries), &N = N retries
+// JitterPercent: nil = use default (20%), &0 = explicitly 0% (no jitter), &N = N%
 func NewHTTPUploaderWithConfig(cfg HTTPUploaderConfig) *HTTPUploader {
 	timeout := cfg.Timeout
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
 
-	maxRetries := cfg.MaxRetries
-	if maxRetries == 0 {
-		maxRetries = 3
+	// MaxRetries: nil means use default, otherwise honor the value (even if 0)
+	maxRetries := 3 // default
+	if cfg.MaxRetries != nil {
+		maxRetries = *cfg.MaxRetries
 	}
 
 	retryDelay := cfg.RetryDelay
 	if retryDelay == 0 {
 		retryDelay = 1 * time.Second
+	}
+
+	maxBackoff := cfg.MaxBackoff
+	if maxBackoff == 0 {
+		maxBackoff = 30 * time.Second
+	}
+
+	backoffMultiplier := cfg.BackoffMultiplier
+	if backoffMultiplier == 0 {
+		backoffMultiplier = 2.0
+	}
+
+	// JitterPercent: nil means use default (20 to prevent thundering herd), otherwise honor the value (even if 0)
+	jitterPercent := 20 // default
+	if cfg.JitterPercent != nil {
+		jitterPercent = *cfg.JitterPercent
 	}
 
 	chunkSize := cfg.ChunkSize
@@ -84,12 +112,15 @@ func NewHTTPUploaderWithConfig(cfg HTTPUploaderConfig) *HTTPUploader {
 	}
 
 	return &HTTPUploader{
-		url:        cfg.URL,
-		deviceID:   cfg.DeviceID,
-		authToken:  cfg.AuthToken,
-		maxRetries: maxRetries,
-		retryDelay: retryDelay,
-		chunkSize:  chunkSize,
+		url:               cfg.URL,
+		deviceID:          cfg.DeviceID,
+		authToken:         cfg.AuthToken,
+		maxRetries:        maxRetries,
+		retryDelay:        retryDelay,
+		maxBackoff:        maxBackoff,
+		backoffMultiplier: backoffMultiplier,
+		jitterPercent:     jitterPercent,
+		chunkSize:         chunkSize,
 		client: &http.Client{
 			Timeout: timeout,
 			Transport: &http.Transport{
@@ -338,16 +369,17 @@ func (u *HTTPUploader) calculateBackoff(attempt int, err error) time.Duration {
 		return rateLimitErr.RetryAfter + jitter
 	}
 
-	// Exponential backoff: baseDelay * 2^attempt
-	backoff := float64(u.retryDelay) * math.Pow(2, float64(attempt))
+	// Exponential backoff: baseDelay * multiplier^attempt
+	backoff := float64(u.retryDelay) * math.Pow(u.backoffMultiplier, float64(attempt))
 
-	// Cap at 30 seconds
-	if backoff > float64(30*time.Second) {
-		backoff = float64(30 * time.Second)
+	// Cap at configured max backoff
+	if backoff > float64(u.maxBackoff) {
+		backoff = float64(u.maxBackoff)
 	}
 
-	// Add jitter (±20% per M2 spec)
-	jitter := backoff * 0.20 * (rand.Float64()*2 - 1)
+	// Add jitter using configured percentage (convert to fraction)
+	jitterFraction := float64(u.jitterPercent) / 100.0
+	jitter := backoff * jitterFraction * (rand.Float64()*2 - 1)
 	backoff += jitter
 
 	return time.Duration(backoff)
