@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/taniwha3/thugshells/internal/config"
+	"github.com/taniwha3/thugshells/internal/health"
 	"github.com/taniwha3/thugshells/internal/models"
 	"github.com/taniwha3/thugshells/internal/storage"
 	"github.com/taniwha3/thugshells/internal/uploader"
@@ -1118,6 +1119,505 @@ func TestTimestampSortingWithinChunks(t *testing.T) {
 			}
 		}
 		t.Logf("Chunk %d: %d timestamps sorted correctly", chunk.chunkIndex, len(chunk.timestamps))
+	}
+}
+
+// ============================================================================
+// Category 3: String Metrics & Filtering Tests
+// ============================================================================
+
+// TestQueryUnuploaded_FiltersStringMetrics verifies that QueryUnuploaded only
+// returns numeric metrics (value_type=0), not string metrics.
+func TestQueryUnuploaded_FiltersStringMetrics(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Store mixed numeric and string metrics
+	metrics := []*models.Metric{
+		models.NewMetric("cpu.temperature", 50.0, "device-001").WithTimestamp(now),
+		models.NewStringMetric("system.status", "running", "device-001").
+			WithTimestamp(now.Add(time.Second)),
+		models.NewMetric("memory.used", 1024.0, "device-001").WithTimestamp(now.Add(2 * time.Second)),
+		models.NewStringMetric("error.message", "disk full", "device-001").
+			WithTimestamp(now.Add(3 * time.Second)),
+		models.NewMetric("disk.io.bytes", 4096.0, "device-001").WithTimestamp(now.Add(4 * time.Second)),
+	}
+
+	if err := store.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("StoreBatch failed: %v", err)
+	}
+
+	// Query unuploaded - should only return numeric metrics
+	unuploaded, err := store.QueryUnuploaded(ctx, 100)
+	if err != nil {
+		t.Fatalf("QueryUnuploaded failed: %v", err)
+	}
+
+	// Should get 3 numeric metrics, not 5 total
+	if len(unuploaded) != 3 {
+		t.Errorf("Expected 3 numeric metrics, got %d", len(unuploaded))
+	}
+
+	// Verify all returned metrics are numeric (value_type = 0)
+	for _, m := range unuploaded {
+		if m.ValueType != models.ValueTypeNumeric {
+			t.Errorf("Expected only numeric metrics (value_type=0), got value_type=%d for metric %s",
+				m.ValueType, m.Name)
+		}
+		if m.ValueText != "" {
+			t.Errorf("Numeric metric should have empty ValueText, got %q", m.ValueText)
+		}
+	}
+
+	// Verify string metrics are still in the database but not returned
+	totalCount, err := store.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count failed: %v", err)
+	}
+	if totalCount != 5 {
+		t.Errorf("Expected 5 total metrics in storage, got %d", totalCount)
+	}
+}
+
+// TestGetPendingCount_FiltersStringMetrics verifies that GetPendingCount only
+// counts numeric metrics, not string metrics.
+func TestGetPendingCount_FiltersStringMetrics(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Store 10 numeric metrics and 5 string metrics
+	metrics := make([]*models.Metric, 15)
+	for i := 0; i < 10; i++ {
+		metrics[i] = models.NewMetric("cpu.temperature", float64(50+i), "device-001").
+			WithTimestamp(now.Add(time.Duration(i) * time.Second))
+	}
+	for i := 10; i < 15; i++ {
+		metrics[i] = models.NewStringMetric("system.status", fmt.Sprintf("status-%d", i), "device-001").
+			WithTimestamp(now.Add(time.Duration(i) * time.Second))
+	}
+
+	if err := store.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("StoreBatch failed: %v", err)
+	}
+
+	// Get pending count - should only count numeric metrics
+	pending, err := store.GetPendingCount(ctx)
+	if err != nil {
+		t.Fatalf("GetPendingCount failed: %v", err)
+	}
+
+	if pending != 10 {
+		t.Errorf("Expected 10 pending numeric metrics, got %d", pending)
+	}
+
+	// Verify total count includes all metrics
+	totalCount, err := store.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count failed: %v", err)
+	}
+	if totalCount != 15 {
+		t.Errorf("Expected 15 total metrics, got %d", totalCount)
+	}
+}
+
+// TestEmptyChunkSkipping_AllStringMetrics verifies that when a batch contains
+// only string metrics, no upload occurs (empty JSONL is skipped).
+func TestEmptyChunkSkipping_AllStringMetrics(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Track uploads
+	uploadCount := int32(0)
+	mockVM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&uploadCount, 1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer mockVM.Close()
+
+	// Store only string metrics
+	metrics := []*models.Metric{
+		models.NewStringMetric("system.status", "running", "device-001").
+			WithTimestamp(now),
+		models.NewStringMetric("error.message", "disk full", "device-001").
+			WithTimestamp(now.Add(time.Second)),
+		models.NewStringMetric("log.entry", "startup complete", "device-001").
+			WithTimestamp(now.Add(2 * time.Second)),
+	}
+
+	if err := store.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("StoreBatch failed: %v", err)
+	}
+
+	// Query unuploaded - should return empty since all are strings
+	unuploaded, err := store.QueryUnuploaded(ctx, 100)
+	if err != nil {
+		t.Fatalf("QueryUnuploaded failed: %v", err)
+	}
+
+	if len(unuploaded) != 0 {
+		t.Errorf("Expected 0 unuploaded numeric metrics, got %d", len(unuploaded))
+	}
+
+	// Try to upload - should be no-op (no HTTP request)
+	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+		URL:       mockVM.URL + "/api/v1/import",
+		DeviceID:  "device-001",
+		ChunkSize: 50,
+	})
+	defer up.Close()
+
+	uploadIDs, err := up.UploadAndGetIDs(ctx, unuploaded)
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+
+	// Should upload nothing
+	if len(uploadIDs) != 0 {
+		t.Errorf("Expected 0 metrics uploaded (all strings), got %d", len(uploadIDs))
+	}
+
+	// Verify no HTTP requests were made
+	finalCount := atomic.LoadInt32(&uploadCount)
+	if finalCount != 0 {
+		t.Errorf("Expected 0 HTTP uploads (empty batch), got %d", finalCount)
+	}
+
+	// Verify pending count still shows 0 (string metrics not counted)
+	pending, err := store.GetPendingCount(ctx)
+	if err != nil {
+		t.Fatalf("GetPendingCount failed: %v", err)
+	}
+	if pending != 0 {
+		t.Errorf("Expected 0 pending (string metrics excluded), got %d", pending)
+	}
+}
+
+// ============================================================================
+// Category 6: Health & Monitoring Tests
+// ============================================================================
+
+// TestHealthEndpoint_FullIntegration verifies the /health endpoint works correctly
+// with various component statuses.
+func TestHealthEndpoint_FullIntegration(t *testing.T) {
+	checker := health.NewChecker(health.DefaultThresholds())
+
+	// Start HTTP server
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go checker.StartHTTPServer(ctx, ":0") // Use random port
+	time.Sleep(50 * time.Millisecond) // Give server time to start
+
+	// Update components
+	checker.UpdateCollectorStatus("cpu", nil, 10)
+	checker.UpdateCollectorStatus("memory", nil, 5)
+	checker.UpdateUploaderStatus(time.Now().Add(-30*time.Second), nil, 100)
+	checker.UpdateStorageStatus(1024*1024, 1024, 100)
+	checker.UpdateClockSkewStatus(50, nil)
+
+	// Get report directly
+	report := checker.GetReport()
+
+	// Verify structure
+	if report.Status == "" {
+		t.Error("Expected non-empty status")
+	}
+	if len(report.Components) < 5 {
+		t.Errorf("Expected at least 5 components, got %d", len(report.Components))
+	}
+	if report.Uptime <= 0 {
+		t.Errorf("Expected positive uptime, got %v", report.Uptime)
+	}
+
+	// Verify all components present
+	expectedComponents := []string{"collector.cpu", "collector.memory", "uploader", "storage", "time"}
+	for _, comp := range expectedComponents {
+		if _, ok := report.Components[comp]; !ok {
+			t.Errorf("Missing component: %s", comp)
+		}
+	}
+}
+
+// TestHealthOK_AllCollectorsHealthy verifies that status is OK when all
+// collectors are healthy and system is operating normally.
+func TestHealthOK_AllCollectorsHealthy(t *testing.T) {
+	checker := health.NewChecker(health.DefaultThresholds())
+
+	// All collectors healthy
+	checker.UpdateCollectorStatus("cpu", nil, 10)
+	checker.UpdateCollectorStatus("memory", nil, 5)
+	checker.UpdateCollectorStatus("disk", nil, 3)
+
+	// Uploader recent and low pending
+	checker.UpdateUploaderStatus(time.Now().Add(-15*time.Second), nil, 100)
+
+	// Storage healthy
+	checker.UpdateStorageStatus(1024*1024, 1024, 100)
+
+	// Clock OK
+	checker.UpdateClockSkewStatus(100, nil)
+
+	report := checker.GetReport()
+
+	if report.Status != health.StatusOK {
+		t.Errorf("Expected status OK, got %s", report.Status)
+	}
+
+	// Verify all components are OK
+	for name, comp := range report.Components {
+		if comp.Status != health.StatusOK {
+			t.Errorf("Component %s: expected OK, got %s", name, comp.Status)
+		}
+	}
+}
+
+// TestHealthDegraded_OneCollectorFails verifies that status becomes degraded
+// when one or more collectors fail (but not all).
+func TestHealthDegraded_OneCollectorFails(t *testing.T) {
+	checker := health.NewChecker(health.DefaultThresholds())
+
+	// Some collectors healthy, one failing
+	checker.UpdateCollectorStatus("cpu", nil, 10)
+	checker.UpdateCollectorStatus("memory", fmt.Errorf("failed to read /proc/meminfo"), 0)
+	checker.UpdateCollectorStatus("disk", nil, 3)
+
+	// Uploader OK
+	checker.UpdateUploaderStatus(time.Now(), nil, 100)
+
+	// Storage OK
+	checker.UpdateStorageStatus(1024*1024, 1024, 100)
+
+	report := checker.GetReport()
+
+	if report.Status != health.StatusDegraded {
+		t.Errorf("Expected status degraded (one collector failing), got %s", report.Status)
+	}
+
+	// Verify memory collector is in error state
+	memoryStat, ok := report.Components["collector.memory"]
+	if !ok {
+		t.Fatal("collector.memory component not found")
+	}
+	if memoryStat.Status != health.StatusError {
+		t.Errorf("Expected collector.memory status error, got %s", memoryStat.Status)
+	}
+}
+
+// TestHealthDegraded_PendingExceeds5000 verifies that status becomes degraded
+// when pending metric count exceeds 5000.
+func TestHealthDegraded_PendingExceeds5000(t *testing.T) {
+	checker := health.NewChecker(health.DefaultThresholds())
+
+	// All collectors OK
+	checker.UpdateCollectorStatus("cpu", nil, 10)
+
+	// Uploader OK but high pending count
+	checker.UpdateUploaderStatus(time.Now(), nil, 6000) // Exceeds 5000
+
+	// Storage OK
+	checker.UpdateStorageStatus(1024*1024, 1024, 6000)
+
+	report := checker.GetReport()
+
+	if report.Status != health.StatusDegraded {
+		t.Errorf("Expected status degraded (pending > 5000), got %s", report.Status)
+	}
+
+	// Verify uploader is degraded
+	uploaderStat, ok := report.Components["uploader"]
+	if !ok {
+		t.Fatal("uploader component not found")
+	}
+	if uploaderStat.Status != health.StatusDegraded {
+		t.Errorf("Expected uploader status degraded, got %s", uploaderStat.Status)
+	}
+}
+
+// TestHealthError_NoUpload10MinAndPending10000 verifies that status becomes error
+// when no upload for > 10 minutes AND pending count > 10000.
+func TestHealthError_NoUpload10MinAndPending10000(t *testing.T) {
+	checker := health.NewChecker(health.DefaultThresholds())
+
+	// All collectors OK
+	checker.UpdateCollectorStatus("cpu", nil, 10)
+
+	// No upload for 11 minutes + high pending
+	lastUploadTime := time.Now().Add(-11 * time.Minute)
+	checker.UpdateUploaderStatus(lastUploadTime, nil, 15000) // > 10000 pending
+
+	// Storage OK
+	checker.UpdateStorageStatus(1024*1024, 1024, 15000)
+
+	report := checker.GetReport()
+
+	if report.Status != health.StatusError {
+		t.Errorf("Expected status error (no upload >10min + pending >10k), got %s", report.Status)
+	}
+
+	// Verify uploader is in error state
+	uploaderStat, ok := report.Components["uploader"]
+	if !ok {
+		t.Fatal("uploader component not found")
+	}
+	if uploaderStat.Status != health.StatusError {
+		t.Errorf("Expected uploader status error, got %s", uploaderStat.Status)
+	}
+}
+
+// TestHealthLive_AlwaysReturns200 verifies that /health/live always returns 200
+// regardless of system status (liveness probe).
+func TestHealthLive_AlwaysReturns200(t *testing.T) {
+	testCases := []struct {
+		name      string
+		setupFunc func(*health.Checker)
+	}{
+		{
+			name: "AllHealthy",
+			setupFunc: func(c *health.Checker) {
+				c.UpdateCollectorStatus("cpu", nil, 10)
+				c.UpdateUploaderStatus(time.Now(), nil, 100)
+			},
+		},
+		{
+			name: "Degraded",
+			setupFunc: func(c *health.Checker) {
+				c.UpdateCollectorStatus("cpu", fmt.Errorf("error"), 0)
+				c.UpdateUploaderStatus(time.Now(), nil, 6000)
+			},
+		},
+		{
+			name: "Error",
+			setupFunc: func(c *health.Checker) {
+				c.UpdateUploaderStatus(time.Now().Add(-15*time.Minute), nil, 15000)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			checker := health.NewChecker(health.DefaultThresholds())
+			tc.setupFunc(checker)
+
+			// Create test server
+			handler := checker.LivenessHandler()
+			req := httptest.NewRequest("GET", "/health/live", nil)
+			w := httptest.NewRecorder()
+			handler(w, req)
+
+			// Should always return 200
+			if w.Code != http.StatusOK {
+				t.Errorf("Expected status 200, got %d", w.Code)
+			}
+
+			// Verify response
+			var response map[string]string
+			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+				t.Fatalf("Failed to parse response: %v", err)
+			}
+			if response["status"] != "alive" {
+				t.Errorf("Expected status 'alive', got %s", response["status"])
+			}
+		})
+	}
+}
+
+// TestHealthReady_Returns200OnlyIfOK verifies that /health/ready returns 200
+// only when status is OK, and 503 otherwise (readiness probe).
+func TestHealthReady_Returns200OnlyIfOK(t *testing.T) {
+	testCases := []struct {
+		name           string
+		setupFunc      func(*health.Checker)
+		expectedStatus int
+		expectedReady  bool
+	}{
+		{
+			name: "OK_Returns200",
+			setupFunc: func(c *health.Checker) {
+				c.UpdateCollectorStatus("cpu", nil, 10)
+				c.UpdateUploaderStatus(time.Now(), nil, 100)
+				c.UpdateStorageStatus(1024, 512, 100)
+			},
+			expectedStatus: http.StatusOK,
+			expectedReady:  true,
+		},
+		{
+			name: "Degraded_Returns503",
+			setupFunc: func(c *health.Checker) {
+				c.UpdateCollectorStatus("cpu", fmt.Errorf("error"), 0)
+				c.UpdateUploaderStatus(time.Now(), nil, 100)
+			},
+			expectedStatus: http.StatusServiceUnavailable,
+			expectedReady:  false,
+		},
+		{
+			name: "Error_Returns503",
+			setupFunc: func(c *health.Checker) {
+				c.UpdateUploaderStatus(time.Now().Add(-15*time.Minute), nil, 15000)
+			},
+			expectedStatus: http.StatusServiceUnavailable,
+			expectedReady:  false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			checker := health.NewChecker(health.DefaultThresholds())
+			tc.setupFunc(checker)
+
+			// Create test server
+			handler := checker.ReadinessHandler()
+			req := httptest.NewRequest("GET", "/health/ready", nil)
+			w := httptest.NewRecorder()
+			handler(w, req)
+
+			// Verify status code
+			if w.Code != tc.expectedStatus {
+				t.Errorf("Expected status %d, got %d", tc.expectedStatus, w.Code)
+			}
+
+			// Verify response
+			var response map[string]interface{}
+			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+				t.Fatalf("Failed to parse response: %v", err)
+			}
+
+			if tc.expectedReady {
+				if response["status"] != "ready" {
+					t.Errorf("Expected status 'ready', got %v", response["status"])
+				}
+			} else {
+				if response["status"] != "not_ready" {
+					t.Errorf("Expected status 'not_ready', got %v", response["status"])
+				}
+			}
+		})
 	}
 }
 
