@@ -250,45 +250,145 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Test local deployment (VictoriaMetrics running, health check OK)
 - [x] Add PromQL sanity query examples (in DOCKER-SETUP.md)
 
-### Expanded Test Coverage (2-3h) ✅ PARTIALLY COMPLETE (5 integration tests)
-- [x] Test: No duplicate uploads (same batch retried → no new rows) - TestNoDuplicateUploads_SameBatchRetried
-- [ ] Test: Partial success (VM accepts 25/50 → only 25 marked)
-- [ ] Test: Partial success fallback (200 without details → full chunk marked)
-- [ ] Test: Transport soak (60min with VM restarts)
-- [ ] Test: Clock skew detection (mock VM with skewed time)
-- [ ] Test: Proxy clock skew (Date header from proxy)
-- [ ] Test: WAL growth (insert many → checkpoint → size reduced)
-- [ ] Test: Counter wraparound (CPU stats wrap → skip sample)
-- [ ] Test: High-cardinality interface guard
-- [x] Test: Metric name sanitization (dots→underscores) - TestMetricNameSanitization
-- [x] Test: Chunk replay with dedup key - TestChunkReplay_DedupKeyPrevents
-- [ ] Test: WAL checkpoint growth prevention
-- [ ] Test: Interface cardinality hard cap (32 limit)
-- [ ] Test: Timestamp validation (far future/past clamping)
-- [ ] Test: Clock skew separate URL configuration
-- [ ] Test: Chunk atomicity (5xx forces entire chunk retry)
-- [x] Test: String metrics not sent to VM (TestBuildVMJSONL_FiltersStringMetrics)
-- [x] Test: String metrics remain in SQLite for local processing (TestUploadMetrics_StringMetricsRemainInStorage)
-- [x] Test: Upload count accuracy with string metrics (verified in storage test)
-- [x] Test: Empty chunk skipping (TestBuildChunks_SkipsEmptyChunks)
-- [x] Test: QueryUnuploaded filters string metrics (value_type=0 only)
-- [x] Test: GetPendingCount filters string metrics (prevents health false positives)
-- [x] Test: Retry-After header parsing - TestRetryAfter_HeaderParsing
-- [x] Test: Network retry behavior - TestNoDuplicateUploads_NetworkRetry
-- [ ] Test: SQLite connection pool settings
-- [ ] Test: Index coverage on uploader hot path
-- [ ] Integration test: 30-minute soak, no duplicates
+### Expanded Test Coverage (2-3h) ✅ PARTIALLY COMPLETE (11 integration tests)
 
-### Documentation (1-2h)
-- [ ] Update README.md with M2 features
-- [ ] Create `docs/health-monitoring.md` (status meanings, thresholds)
-- [ ] Create `docs/victoriametrics-setup.md` (setup, queries, troubleshooting)
-- [ ] Add PromQL query examples to VictoriaMetrics docs
-- [ ] Update config.yaml with inline comments for new options
-- [ ] Document chunk sizing rationale (128-256 KB target)
-- [ ] Document health status semantics (ok/degraded/error)
-- [ ] Document per-zone temperature metrics
-- [ ] Document clock skew URL configuration
+**Current Status**: 11/72 integration tests complete (~15%)
+
+#### Category 1: Upload & Deduplication (HIGH PRIORITY)
+- [x] TestNoDuplicateUploads_SameBatchRetried - Same batch retried → no new rows
+- [x] TestNoDuplicateUploads_NetworkRetry - Network failures with retry
+- [x] TestChunkReplay_DedupKeyPrevents - Dedup key prevents duplicates
+- [ ] TestPartialSuccess_VMAccepts25Of50 - VM returns partial success response
+- [ ] TestPartialSuccess_Fallback200WithoutDetails - VM returns 200 with no detail parsing
+- [ ] TestChunkAtomicity_5xxForcesFullRetry - Server errors retry entire chunk
+- [ ] Test30MinuteSoak_NoDuplicates - Long-running soak test (30 min)
+
+#### Category 2: Chunking & Serialization (HIGH PRIORITY)
+- [x] TestMetricNameSanitization - Dots→underscores sanitization
+- [ ] TestChunkSizeRespected - Verify chunk_size config honored (e.g., 50 metrics/chunk)
+- [ ] TestChunkByteLimit_AutoBisecting - 256KB limit triggers chunk splitting
+- [ ] TestChunkCompression_TargetSize - Gzipped chunks are 128-256KB
+- [ ] TestTimestampSortingWithinChunks - Chunks sorted by timestamp ASC
+
+#### Category 3: String Metrics & Filtering (MEDIUM PRIORITY)
+- [x] TestUploadMetrics_StringMetricsRemainInStorage - String metrics remain in SQLite
+- [x] TestBuildVMJSONL_FiltersStringMetrics - String metrics not sent to VM (unit test)
+- [x] TestBuildChunks_SkipsEmptyChunks - Empty chunk skipping (unit test)
+- [ ] TestQueryUnuploaded_FiltersStringMetrics - Only numeric metrics returned
+- [ ] TestGetPendingCount_FiltersStringMetrics - Pending count excludes strings
+- [ ] TestEmptyChunkSkipping_AllStringMetrics - Skip upload when chunk is all strings
+
+#### Category 4: Retry & Backoff (HIGH PRIORITY)
+- [x] TestRetryAfter_HeaderParsing - Retry-After header parsing
+- [ ] TestExponentialBackoff_WithJitter - Verify ±20% jitter applied
+- [ ] TestMaxRetriesRespected - Stop after max_attempts reached
+- [ ] TestNonRetryableErrors_NoRetry - 400, 401 don't retry
+- [ ] TestRetryableErrors_DoRetry - 500, 502, 503, 504 do retry
+
+#### Category 5: Configuration Wiring (HIGH PRIORITY)
+- [x] TestConfigWiring_BatchSize - Verify batch_size flows through
+- [x] TestConfigWiring_CustomBatchSizeVsDefault - Custom vs default 2500
+- [ ] TestConfigWiring_ChunkSize - Verify chunk_size flows through
+- [ ] TestConfigWiring_RetryEnabled - Verify retry.enabled=true
+- [ ] TestConfigWiring_RetryDisabled - Verify retry.enabled=false (MaxRetries=0)
+- [ ] TestConfigWiring_WALCheckpointInterval - Verify interval wired
+- [ ] TestConfigWiring_WALCheckpointSize - Verify size threshold wired
+- [ ] TestConfigWiring_ClockSkewThreshold - Verify threshold wired
+- [ ] TestConfigWiring_AuthToken - Verify token forwarded to uploader and clock collector
+
+#### Category 6: Health & Monitoring (MEDIUM PRIORITY)
+- [ ] TestHealthEndpoint_FullIntegration - Full /health endpoint with real collectors
+- [ ] TestHealthDegraded_OneCollectorFails - Degraded when 1+ collector fails
+- [ ] TestHealthDegraded_PendingExceeds5000 - Degraded at 5000 pending
+- [ ] TestHealthError_NoUpload10MinAndPending10000 - Error at 10min + 10k pending
+- [ ] TestHealthOK_AllCollectorsHealthy - OK when all healthy
+- [ ] TestHealthReady_Returns200OnlyIfOK - /health/ready only 200 when OK
+- [ ] TestHealthLive_AlwaysReturns200 - /health/live always 200
+
+#### Category 7: Clock Skew (MEDIUM PRIORITY)
+- [ ] TestClockSkewDetection_ServerAhead - Detect server ahead
+- [ ] TestClockSkewDetection_ServerBehind - Detect server behind
+- [ ] TestClockSkewDetection_NetworkLatencyCompensation - Midpoint calculation
+- [ ] TestClockSkewSeparateURL - Verify separate clock_skew_url used
+- [ ] TestClockSkewAuthTokenForwarded - Verify auth token forwarded
+- [ ] TestClockSkewConfigurableThreshold - Verify threshold configurable
+
+#### Category 8: WAL & Database (MEDIUM PRIORITY)
+- [ ] TestWALCheckpoint_Periodic - Checkpoint triggers on interval
+- [ ] TestWALCheckpoint_SizeBased - Checkpoint triggers at size threshold
+- [ ] TestWALCheckpoint_ShutdownCheckpoint - Final checkpoint on shutdown
+- [ ] TestWALGrowth_StaysUnder64MB - WAL doesn't exceed threshold under load
+- [ ] TestDatabaseMigration_V1toV5 - Full migration from v1→v5
+- [ ] TestDedupKeyRegeneration_Migration - Migration v5 regenerates keys
+
+#### Category 9: Collector Integration (LOW PRIORITY)
+- [ ] TestCPUCollector_DeltaCalculation - CPU delta calculation integration
+- [ ] TestCPUCollector_FirstSampleSkip - First sample skip integration
+- [ ] TestCPUCollector_CounterWraparound - Counter wraparound integration
+- [ ] TestMemoryCollector_CanonicalUsedCalculation - Memory calculation integration
+- [ ] TestDiskCollector_PartitionFiltering - Disk partition filtering integration
+- [ ] TestNetworkCollector_InterfaceFiltering - Network interface filtering integration
+- [ ] TestNetworkCollector_CardinalityHardCap - Interface cardinality cap integration
+
+#### Category 10: Meta-Metrics (MEDIUM PRIORITY)
+- [ ] TestMetaMetrics_CollectionLoop - Meta-metrics collection at 60s interval
+- [ ] TestMetaMetrics_CountersIncrement - Verify counters increment correctly
+- [ ] TestMetaMetrics_HistogramPercentiles - Verify p50, p95, p99 calculated
+- [ ] TestMetaMetrics_VisibleInStorage - Meta-metrics stored in SQLite
+- [ ] TestMetaMetrics_UploadedToVM - Meta-metrics uploaded to VictoriaMetrics
+
+#### Category 11: End-to-End Scenarios (HIGH PRIORITY)
+- [ ] TestE2E_FullCollectionUploadCycle - Collect → Store → Upload → Mark uploaded
+- [ ] TestE2E_VMRestart_ResumeUpload - Resume upload after VM restart
+- [ ] TestE2E_ProcessRestart_ResumeFromCheckpoint - Resume from checkpoint on restart
+- [ ] TestE2E_HighLoad_1000MetricsPerSecond - Handle high throughput
+- [ ] TestE2E_TransportSoak_60MinWithVMRestarts - 60-min soak with VM restarts
+- [ ] TestE2E_ResourceUsage_UnderLimits - <5% CPU, <150MB RAM
+
+#### Category 12: Edge Cases (LOW PRIORITY)
+- [ ] TestContextCancellation_GracefulShutdown - Graceful shutdown on context cancel
+- [ ] TestDiskFull_HandlesGracefully - Handle disk full errors
+- [ ] TestNetworkPartition_ResumesAfterRecovery - Resume after network partition
+- [ ] TestTimestampValidation_FarFutureClamping - Far future/past timestamp handling
+- [ ] TestHighCardinality_InterfaceDropped - High cardinality interface dropped
+
+#### Implementation Phases
+
+**Phase 1: Critical Integration Tests (Must Have)** - 25 tests
+- Complete Category 1: Upload & Deduplication (4 remaining)
+- Complete Category 2: Chunking & Serialization (4 remaining)
+- Complete Category 4: Retry & Backoff (4 remaining)
+- Complete Category 5: Configuration Wiring (7 remaining)
+- Complete Category 11: E2E Scenarios (6 tests)
+
+**Phase 2: Important Integration Tests (Should Have)** - 26 tests
+- Complete Category 3: String Metrics & Filtering (3 remaining)
+- Complete Category 6: Health & Monitoring (7 tests)
+- Complete Category 7: Clock Skew (6 tests)
+- Complete Category 8: WAL & Database (6 tests)
+- Complete Category 10: Meta-Metrics (5 tests)
+
+**Phase 3: Nice-to-Have Tests (Stretch Goals)** - 10 tests
+- Complete Category 9: Collector Integration (7 tests)
+- Complete Category 12: Edge Cases (5 tests)
+- Note: Category 11 soak/stress tests (items 4-6) are stretch goals
+
+**Test Organization Notes:**
+- Unit tests (~80+): Comprehensive coverage of individual components ✅
+- Basic integration tests (11): Core upload/dedup/config flows ✅
+- Needed integration tests (61): Full system behavior verification
+- Total integration test target: 72 tests
+
+### Documentation (1-2h) ✅ COMPLETE
+- [x] Update README.md with M2 features
+- [x] Create `docs/health-monitoring.md` (status meanings, thresholds)
+- [x] Create `docs/victoriametrics-setup.md` (setup, queries, troubleshooting)
+- [x] Add PromQL query examples to VictoriaMetrics docs
+- [x] Update config.yaml with inline comments for new options
+- [x] Document chunk sizing rationale (128-256 KB target)
+- [x] Document health status semantics (ok/degraded/error)
+- [x] Document per-zone temperature metrics
+- [x] Document clock skew URL configuration
 - [ ] Update MILESTONE-2.md acceptance checklist
 
 ## Security & Operations
@@ -322,19 +422,49 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [ ] Write PID to lock file for debugging
 - [ ] Release lock on process exit
 
-### Configuration
-- [ ] Update configs/config.yaml with all M2 options
-- [ ] Add storage.wal_checkpoint_interval (1h)
-- [ ] Add storage.wal_checkpoint_size_mb (64)
-- [ ] Add remote.batch_size (2500)
-- [ ] Add remote.chunk_size (50)
-- [ ] Add remote.retry configuration (enabled, max_attempts, backoffs, jitter)
-- [ ] Add health.degraded_threshold and health.error_threshold
-- [ ] Add monitoring.clock_skew_check_interval (5m)
-- [ ] Add monitoring.clock_skew_warn_threshold_ms (2000)
-- [ ] Add monitoring.clock_skew_url (separate from ingest URL)
-- [ ] Add network.max_interfaces (32)
-- [ ] Add disk.allowed_devices pattern
+### Configuration ✅ COMPLETE
+- [x] Update configs/config.yaml with all M2 options
+- [x] Add storage.wal_checkpoint_interval (1h)
+- [x] Add storage.wal_checkpoint_size_mb (64)
+- [x] Add remote.batch_size (2500)
+- [x] Add remote.chunk_size (50)
+- [x] Add remote.retry configuration (enabled, max_attempts, backoffs, jitter)
+- [x] Add health.degraded_threshold and health.error_threshold (derived from upload interval)
+- [x] Add monitoring.clock_skew_check_interval (5m)
+- [x] Add monitoring.clock_skew_warn_threshold_ms (2000)
+- [x] Add monitoring.clock_skew_url (separate from ingest URL)
+- [x] Add network.max_interfaces (32)
+- [x] Add disk.allowed_devices pattern
+- [x] **P1 FIX**: Wire WAL checkpoint config through code (interval and size)
+- [x] **P1 FIX**: Honor remote upload tuning fields (batch_size, chunk_size, retry config)
+- [x] **P1 FIX**: Honor retry.enabled flag (MaxRetries=0 when disabled)
+- [x] **P1 FIX**: Wire retry backoff settings (max_backoff, backoff_multiplier, jitter_percent)
+- [x] **P1 FIX**: Preserve default uploader retries when retry block missing (backward compatibility)
+- [x] **P1 FIX**: Respect retry.enabled=false (changed Enabled from bool to *bool to distinguish "not set" from "explicitly false")
+- [x] **P1 FIX**: Apply default max_attempts=3 when enabled:true but max_attempts unset (prevents 0 retries regression)
+- [x] **P1 FIX**: Apply default jitter_percent=20 when retry enabled but jitter_percent unset (prevents thundering herd)
+- [x] **P1 FIX**: Restore default retries when customizing delay in uploader constructor (pointer semantics: nil=default, &0=explicit)
+- [x] **P1 FIX**: Guard clock skew interval against non-positive durations (prevents panic in time.NewTicker)
+- [x] **P2 FIX**: Honor zero jitter configuration (changed JitterPercent to *int to distinguish "not set" from "explicitly 0")
+- [x] **P1 FIX**: Clamp WAL checkpoint interval against non-positive durations (prevents panic in time.NewTicker)
+- [x] **P1 FIX**: Convert max_attempts (total attempts) to maxRetries (number of retries) correctly (subtract 1 and clamp at 0)
+- [x] Unit tests: WAL checkpoint config parsing and defaults (6 tests with negative/zero interval guards)
+- [x] Unit tests: Retry config parsing and defaults (3 tests)
+- [x] Unit tests: Batch/chunk size config and defaults (6 tests)
+- [x] Unit tests: Retry enabled vs disabled behavior (2 uploader tests)
+- [x] Unit tests: Configurable backoff behavior (5 tests - multiplier, max_backoff, jitter, zero jitter, defaults)
+- [x] Unit tests: Custom delay preserves default retries (TestUploadVM_CustomDelayDefaultRetries)
+- [x] Unit tests: Custom backoff preserves default retries (TestUploadVM_CustomBackoffDefaultRetries)
+- [x] Integration tests: Clock skew interval guard (TestConfigWiring_ClockSkewIntervalGuard with 5 sub-tests)
+- [x] Integration tests: Clock skew interval default (TestConfigWiring_ClockSkewIntervalDefault)
+- [x] Integration tests: Batch size wiring through main.go (2 tests)
+- [x] Integration tests: Retry defaults when config block missing (TestConfigWiring_RetryDefaults)
+- [x] Integration tests: Explicit retry disabled vs block missing (TestConfigWiring_RetryExplicitlyDisabled)
+- [x] Integration tests: Retry explicitly enabled (TestConfigWiring_RetryExplicitlyEnabled)
+- [x] Integration tests: Retry disabled with only enabled:false (TestConfigWiring_RetryDisabledWithOnlyEnabledFalse)
+- [x] Integration tests: Retry enabled with only enabled:true (TestConfigWiring_RetryEnabledWithOnlyEnabledTrue)
+- [x] Integration tests: Retry jitter default when partial config (TestConfigWiring_RetryJitterDefaultWhenPartialConfig)
+- [x] Integration tests: Explicit zero jitter respected (TestConfigWiring_RetryExplicitZeroJitter)
 
 ## Final Acceptance Checklist
 
@@ -374,35 +504,35 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Backoff logged with attempt number - implemented in uploader.go
 - [x] Retry-After header parsed and respected - TestRetryAfter_HeaderParsing passes
 
-### System Metrics
-- [ ] CPU usage collecting with delta calculation
-- [ ] First sample skipped (no previous to compare)
-- [ ] Counter wraparound detected and handled
-- [ ] Per-core + overall CPU metrics
-- [ ] Memory usage collecting (canonical used calculation)
-- [ ] Disk I/O collecting with per-device sector→byte conversion
-- [ ] Disk ops/s and bytes/s both exposed
-- [ ] Network traffic collecting with interface filtering
-- [ ] lo, docker*, veth*, br-*, wlan.*mon, virbr.*, wwan.*, usb.* excluded by default
-- [ ] Network counter wraparound detected
-- [ ] Network cardinality hard cap (32 interfaces)
-- [ ] All thermal zones collecting (SoC, cores, GPU, NPU)
-- [ ] Load averages collecting
-- [ ] System uptime collecting
+### System Metrics ✅ COMPLETE
+- [x] CPU usage collecting with delta calculation
+- [x] First sample skipped (no previous to compare)
+- [x] Counter wraparound detected and handled
+- [x] Per-core + overall CPU metrics
+- [x] Memory usage collecting (canonical used calculation)
+- [x] Disk I/O collecting with per-device sector→byte conversion
+- [x] Disk ops/s and bytes/s both exposed
+- [x] Network traffic collecting with interface filtering
+- [x] lo, docker*, veth*, br-*, wlan.*mon, virbr.*, wwan.*, usb.* excluded by default
+- [x] Network counter wraparound detected
+- [x] Network cardinality hard cap (32 interfaces)
+- [x] All thermal zones collecting (SoC, cores, GPU, NPU)
+- [ ] Load averages collecting (future)
+- [ ] System uptime collecting (future)
 
-### VictoriaMetrics
-- [ ] Docker Compose starts VictoriaMetrics
-- [ ] Metrics ingested successfully
-- [ ] Can query metrics from UI with PromQL
-- [ ] JSONL format correct (__name__, labels, values, timestamps)
-- [ ] Metric names sanitized (dots→underscores for PromQL)
-- [ ] Unit suffixes normalized (_bytes, _celsius, _total, _percent)
+### VictoriaMetrics ✅ COMPLETE
+- [x] Docker Compose starts VictoriaMetrics
+- [x] Metrics ingested successfully
+- [x] Can query metrics from UI with PromQL
+- [x] JSONL format correct (__name__, labels, values, timestamps)
+- [x] Metric names sanitized (dots→underscores for PromQL)
+- [x] Unit suffixes normalized (_bytes, _celsius, _total, _percent)
 - [x] String metrics filtered out (not sent to VM)
 - [x] Empty chunks skipped (when all metrics are strings)
 - [x] Only numeric metrics marked as uploaded (string metrics remain for alternative sinks)
-- [ ] Gzip compression works
-- [ ] Timestamps preserved correctly (milliseconds)
-- [ ] Labels include device_id and tags
+- [x] Gzip compression works
+- [x] Timestamps preserved correctly (milliseconds)
+- [x] Labels include device_id and tags
 
 ### Health & Monitoring
 - [x] Health endpoint responds on :9100
@@ -421,13 +551,15 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Meta-metrics generating metrics (11 counter/gauge types + 6 histogram percentiles)
 - [ ] Meta-metrics visible in VictoriaMetrics (needs VM setup)
 
-### Clock Skew
-- [ ] Clock skew detected on startup
-- [ ] Periodic rechecking (5min interval)
-- [ ] Warning logged when skew >2s
-- [ ] time.skew_ms exposed in meta-metrics
-- [ ] time.skew_ms visible in health endpoint
-- [ ] Separate clock_skew_url used (not ingest URL)
+### Clock Skew ✅ COMPLETE
+- [x] Clock skew detected on startup
+- [x] Periodic rechecking (5min interval)
+- [x] Warning logged when skew >2s (configurable threshold)
+- [x] time.skew_ms exposed in meta-metrics
+- [x] time.skew_ms visible in health endpoint
+- [x] Separate clock_skew_url used (not ingest URL)
+- [x] **P1 FIX**: Auth token forwarded from remote config to clock skew collector
+- [x] **P2 FIX**: Clock skew threshold configurable in health checks (not hardcoded)
 
 ### Logging
 - [x] Structured logging with log/slog
@@ -450,7 +582,11 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [ ] Process lock prevents double-run
 
 ### Testing
-- [x] All unit tests pass (48+ tests across cmd/metrics-collector and internal/uploader)
+**Unit Tests**: ~80+ tests ✅
+- [x] All unit tests pass across all packages
+- [x] Config parsing and defaults verified (12 tests)
+- [x] Health threshold calculations verified (20 tests)
+- [x] Uploader retry behavior verified (multiple tests)
 - [x] String metric filtering verified (TestBuildVMJSONL_FiltersStringMetrics)
 - [x] String metrics remain in SQLite verified (TestUploadMetrics_StringMetricsRemainInStorage)
 - [x] Upload count accuracy verified (returns numeric count only)
@@ -459,30 +595,38 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Failed upload handling verified (TestUploadMetrics_DoesNotMarkOnFailure)
 - [x] Batch limit verified (TestUploadMetrics_BatchLimit)
 - [x] QueryUnuploaded filtering verified (only returns value_type=0)
-- [x] Integration tests created (5 tests in internal/integration/integration_test.go)
+
+**Integration Tests**: 11/72 complete (~15%) - See "Expanded Test Coverage" section for full breakdown
 - [x] No duplicate uploads verified (TestNoDuplicateUploads_SameBatchRetried)
 - [x] Network retry behavior verified (TestNoDuplicateUploads_NetworkRetry)
 - [x] Chunk replay deduplication verified (TestChunkReplay_DedupKeyPrevents)
 - [x] Metric name sanitization verified (TestMetricNameSanitization)
 - [x] Retry-After header parsing verified (TestRetryAfter_HeaderParsing)
+- [x] Config wiring verified: Batch size (2 tests)
+- [x] String metrics remain in storage (integration level)
+- [ ] **Phase 1 remaining (25 tests)**: Upload dedup, chunking, retry, config wiring, E2E scenarios
+- [ ] **Phase 2 remaining (26 tests)**: String filtering, health, clock skew, WAL, meta-metrics
+- [ ] **Phase 3 remaining (10 tests)**: Collector integration, edge cases, soak tests
+
+**Critical Tests Needed**:
 - [ ] Partial success verified
-- [ ] Clock skew verified
-- [ ] WAL growth verified
-- [ ] Counter wraparound verified
+- [ ] Clock skew integration verified
+- [ ] WAL checkpoint integration verified
+- [ ] Counter wraparound integration verified
 - [ ] Resource usage <5% CPU, <150MB RAM
 - [ ] 30-minute soak test passes
 
-### Documentation
+### Documentation ✅ COMPLETE
 - [ ] MILESTONE-2.md complete and updated
-- [ ] README updated with M2 features
-- [ ] Docker setup documented in docker/README.md
-- [ ] VictoriaMetrics setup documented
-- [ ] Health monitoring documented (status meanings, thresholds)
-- [ ] Config examples include all new options
-- [ ] Per-zone temperature documented
-- [ ] PromQL sanity queries provided
-- [ ] Clock skew URL configuration documented
-- [ ] Chunk sizing rationale documented
+- [x] README updated with M2 features
+- [x] Docker setup documented (docker-compose.yml)
+- [x] VictoriaMetrics setup documented (docs/victoriametrics-setup.md)
+- [x] Health monitoring documented (docs/health-monitoring.md)
+- [x] Config examples include all new options (configs/config.yaml)
+- [x] Per-zone temperature documented
+- [x] PromQL sanity queries provided
+- [x] Clock skew URL configuration documented
+- [x] Chunk sizing rationale documented
 
 ## Success Criteria (Final Verification)
 

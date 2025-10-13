@@ -89,9 +89,15 @@ func main() {
 	walCtx, walCancel := context.WithCancel(context.Background())
 	defer walCancel()
 
-	// Start WAL checkpoint routine with 1 hour interval and 64 MB threshold
-	cancelWAL := store.StartWALCheckpointRoutine(walCtx, logger, 1*time.Hour, 64*1024*1024)
+	// Start WAL checkpoint routine with configured interval and size threshold
+	walCheckpointInterval := cfg.Storage.WALCheckpointInterval()
+	walCheckpointSize := cfg.Storage.WALCheckpointSizeBytes()
+	cancelWAL := store.StartWALCheckpointRoutine(walCtx, logger, walCheckpointInterval, walCheckpointSize)
 	defer cancelWAL()
+	logger.Info("WAL checkpoint routine configured",
+		slog.Duration("interval", walCheckpointInterval),
+		slog.Int64("size_threshold_bytes", walCheckpointSize),
+	)
 
 	// Initialize meta-metrics collector
 	metricsCollector := monitoring.NewMetricsCollector(cfg.Device.ID)
@@ -100,20 +106,118 @@ func main() {
 	// Initialize health checker with thresholds derived from upload interval
 	uploadInterval := cfg.Remote.UploadInterval()
 	healthThresholds := health.ThresholdsFromUploadInterval(uploadInterval)
+
+	// Override clock skew threshold if configured
+	if cfg.Monitoring.ClockSkewWarnThresholdMs > 0 {
+		healthThresholds.ClockSkewThresholdMs = int64(cfg.Monitoring.ClockSkewWarnThresholdMs)
+	}
+
 	healthChecker := health.NewChecker(healthThresholds)
 	logger.Info("Health checker initialized",
 		slog.Duration("upload_interval", uploadInterval),
 		slog.Int("ok_threshold_sec", healthThresholds.UploadOKInterval),
 		slog.Int("degraded_threshold_sec", healthThresholds.UploadDegradedInterval),
 		slog.Int("error_threshold_sec", healthThresholds.UploadErrorInterval),
+		slog.Int64("clock_skew_threshold_ms", healthThresholds.ClockSkewThresholdMs),
 	)
 
 	// Initialize uploader (if remote enabled)
 	var upload uploader.Uploader
 	if cfg.Remote.Enabled {
-		upload = uploader.NewHTTPUploader(cfg.Remote.URL, cfg.Device.ID)
+		// Build uploader config from remote settings
+		uploaderCfg := uploader.HTTPUploaderConfig{
+			URL:       cfg.Remote.URL,
+			DeviceID:  cfg.Device.ID,
+			AuthToken: cfg.Remote.AuthToken,
+			// Set timeout explicitly to avoid default logic
+			Timeout:   30 * time.Second,
+		}
+
+		// Apply retry configuration only if explicitly configured
+		// Check if retry block is configured at all (Enabled field set OR any numeric field non-zero)
+		retryConfigured := cfg.Remote.Retry.Enabled != nil ||
+			cfg.Remote.Retry.MaxAttempts > 0 ||
+			cfg.Remote.Retry.InitialBackoffStr != "" ||
+			cfg.Remote.Retry.MaxBackoffStr != "" ||
+			cfg.Remote.Retry.BackoffMultiplier > 0 ||
+			cfg.Remote.Retry.JitterPercent != nil
+
+		if retryConfigured {
+			// Retry block is configured - honor the enabled flag
+			// Default to true if Enabled is nil but other fields are set
+			enabled := cfg.Remote.Retry.Enabled == nil || *cfg.Remote.Retry.Enabled
+			if enabled {
+				// Use configured retry values, applying defaults for unset fields
+				maxAttempts := cfg.Remote.Retry.MaxAttempts
+				if maxAttempts == 0 {
+					// User enabled retries but didn't set max_attempts - use default
+					maxAttempts = 3
+				}
+				// Convert max_attempts (total attempts) to maxRetries (number of retries)
+				// max_attempts=1 → maxRetries=0 (1 attempt, no retries)
+				// max_attempts=3 → maxRetries=2 (3 attempts = initial + 2 retries)
+				maxRetries := maxAttempts - 1
+				if maxRetries < 0 {
+					maxRetries = 0
+				}
+				uploaderCfg.MaxRetries = &maxRetries
+
+				uploaderCfg.RetryDelay = cfg.Remote.Retry.InitialBackoff()
+				uploaderCfg.MaxBackoff = cfg.Remote.Retry.MaxBackoff()
+				uploaderCfg.BackoffMultiplier = cfg.Remote.Retry.BackoffMultiplier
+
+				// JitterPercent: nil means use default (20), otherwise honor the value (even if 0)
+				if cfg.Remote.Retry.JitterPercent != nil {
+					// User explicitly set jitter_percent - honor it (even if 0)
+					uploaderCfg.JitterPercent = cfg.Remote.Retry.JitterPercent
+				} else {
+					// User enabled retries but didn't set jitter_percent - use default
+					// Critical: Without jitter, all instances retry in lockstep (thundering herd)
+					jitter := 20
+					uploaderCfg.JitterPercent = &jitter
+				}
+			} else {
+				// Explicitly disabled - set MaxRetries=0 (means 1 attempt, no retries)
+				zero := 0
+				uploaderCfg.MaxRetries = &zero
+				uploaderCfg.RetryDelay = 1 * time.Second
+				uploaderCfg.JitterPercent = &zero
+			}
+		}
+		// Otherwise: retry block not configured at all
+		// Leave MaxRetries and JitterPercent as nil (uploader will use defaults)
+
+		// Apply chunk size configuration
+		uploaderCfg.ChunkSize = cfg.Remote.GetChunkSize()
+
+		upload = uploader.NewHTTPUploaderWithConfig(uploaderCfg)
 		defer upload.Close()
-		logger.Info("Uploader initialized")
+
+		// Log uploader config
+		if retryConfigured {
+			maxRetries := 3 // default
+			if uploaderCfg.MaxRetries != nil {
+				maxRetries = *uploaderCfg.MaxRetries
+			}
+			jitterPercent := 20 // default
+			if uploaderCfg.JitterPercent != nil {
+				jitterPercent = *uploaderCfg.JitterPercent
+			}
+			logger.Info("Uploader initialized",
+				slog.Int("chunk_size", uploaderCfg.ChunkSize),
+				slog.Int("max_retries", maxRetries),
+				slog.Duration("retry_delay", uploaderCfg.RetryDelay),
+				slog.Duration("max_backoff", uploaderCfg.MaxBackoff),
+				slog.Float64("backoff_multiplier", uploaderCfg.BackoffMultiplier),
+				slog.Int("jitter_percent", jitterPercent),
+				slog.Bool("retry_configured", true),
+			)
+		} else {
+			logger.Info("Uploader initialized",
+				slog.Int("chunk_size", uploaderCfg.ChunkSize),
+				slog.String("retry_config", "using defaults (3 retries, 1s initial, 30s max, 2.0x multiplier, 20% jitter)"),
+			)
+		}
 	}
 
 	// Initialize collectors
@@ -159,7 +263,7 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			runUploadLoop(ctx, store, upload, cfg.Remote.UploadInterval(), healthChecker, metricsCollector, logger)
+			runUploadLoop(ctx, store, upload, cfg.Remote.UploadInterval(), cfg.Remote.GetBatchSize(), healthChecker, metricsCollector, logger)
 		}()
 	}
 
@@ -176,6 +280,36 @@ func main() {
 		defer wg.Done()
 		runMetaMetricsLoop(ctx, store, metricsCollector, 60*time.Second, logger)
 	}()
+
+	// Start clock skew checking routine (if configured)
+	if cfg.Monitoring.ClockSkewURL != "" {
+		clockCheckInterval := 5 * time.Minute // Default to 5 minutes
+		if cfg.Monitoring.ClockSkewCheckInterval != "" {
+			if interval, err := time.ParseDuration(cfg.Monitoring.ClockSkewCheckInterval); err == nil {
+				// Guard against non-positive intervals to prevent panic in time.NewTicker
+				// Non-positive durations (0s, -1s, etc.) fall back to the default
+				if interval > 0 {
+					clockCheckInterval = interval
+				} else {
+					logger.Warn("Clock skew check interval must be positive, using default",
+						slog.Duration("configured", interval),
+						slog.Duration("default", 5*time.Minute),
+					)
+				}
+			}
+		}
+
+		warnThresholdMs := int64(2000) // Default to 2000ms
+		if cfg.Monitoring.ClockSkewWarnThresholdMs > 0 {
+			warnThresholdMs = int64(cfg.Monitoring.ClockSkewWarnThresholdMs)
+		}
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runClockSkewLoop(ctx, cfg, store, healthChecker, clockCheckInterval, warnThresholdMs, logger)
+		}()
+	}
 
 	logger.Info("All collectors started. Press Ctrl+C to stop.")
 
@@ -217,6 +351,14 @@ func initializeCollectors(cfg *config.Config, logger *slog.Logger) map[string]co
 		switch mc.Name {
 		case "cpu.temperature":
 			coll = collector.NewSystemCollector(cfg.Device.ID)
+		case "cpu.usage":
+			coll = collector.NewCPUCollector(cfg.Device.ID)
+		case "memory.usage":
+			coll = collector.NewMemoryCollector(cfg.Device.ID)
+		case "disk.io":
+			coll = collector.NewDiskCollector(cfg.Device.ID)
+		case "network.traffic":
+			coll = collector.NewNetworkCollector(cfg.Device.ID)
 		case "srt.packet_loss":
 			coll = collector.NewMockSRTCollector(cfg.Device.ID)
 		default:
@@ -346,6 +488,7 @@ func runUploadLoop(
 	store *storage.SQLiteStorage,
 	upload uploader.Uploader,
 	interval time.Duration,
+	batchSize int,
 	healthChecker *health.Checker,
 	metricsCollector *monitoring.MetricsCollector,
 	logger *slog.Logger,
@@ -353,7 +496,10 @@ func runUploadLoop(
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	logger.Info("Upload loop started", slog.Duration("interval", interval))
+	logger.Info("Upload loop started",
+		slog.Duration("interval", interval),
+		slog.Int("batch_size", batchSize),
+	)
 
 	lastUploadTime := time.Now()
 	var lastUploadErr error
@@ -364,7 +510,7 @@ func runUploadLoop(
 			return
 		case <-ticker.C:
 			startTime := time.Now()
-			count, err := uploadMetrics(ctx, store, upload, logger)
+			count, err := uploadMetrics(ctx, store, upload, batchSize, logger)
 			duration := time.Since(startTime)
 
 			if err == nil {
@@ -396,10 +542,10 @@ func uploadMetrics(
 	ctx context.Context,
 	store *storage.SQLiteStorage,
 	upload uploader.Uploader,
+	batchSize int,
 	logger *slog.Logger,
 ) (int, error) {
-	// Query unuploaded metrics (limit to reasonable batch size)
-	const batchSize = 2500
+	// Query unuploaded metrics (limit to configured batch size)
 	metrics, err := store.QueryUnuploaded(ctx, batchSize)
 
 	if err != nil {
@@ -572,4 +718,88 @@ func runMetaMetricsLoop(
 			)
 		}
 	}
+}
+
+// runClockSkewLoop periodically checks for clock skew and updates health status
+func runClockSkewLoop(
+	ctx context.Context,
+	cfg *config.Config,
+	store *storage.SQLiteStorage,
+	healthChecker *health.Checker,
+	interval time.Duration,
+	warnThresholdMs int64,
+	logger *slog.Logger,
+) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	logger.Info("Clock skew checking loop started",
+		slog.Duration("interval", interval),
+		slog.Int64("warn_threshold_ms", warnThresholdMs),
+		slog.String("url", cfg.Monitoring.ClockSkewURL),
+	)
+
+	// Create clock skew collector
+	// Note: Reuse auth token from remote config since clock skew endpoint
+	// typically shares the same auth requirements as ingestion endpoint
+	clockCollector := collector.NewClockSkewCollector(collector.ClockSkewCollectorConfig{
+		DeviceID:        cfg.Device.ID,
+		ClockSkewURL:    cfg.Monitoring.ClockSkewURL,
+		AuthToken:       cfg.Remote.AuthToken, // Reuse auth token from remote config
+		WarnThresholdMs: warnThresholdMs,
+	})
+
+	// Check immediately on start
+	checkClockSkew(ctx, clockCollector, store, healthChecker, logger)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			checkClockSkew(ctx, clockCollector, store, healthChecker, logger)
+		}
+	}
+}
+
+// checkClockSkew performs a single clock skew check
+func checkClockSkew(
+	ctx context.Context,
+	clockCollector collector.Collector,
+	store *storage.SQLiteStorage,
+	healthChecker *health.Checker,
+	logger *slog.Logger,
+) {
+	metrics, err := clockCollector.Collect(ctx)
+	if err != nil {
+		logger.Warn("Clock skew check failed", slog.Any("error", err))
+		// Update health with error
+		if healthChecker != nil {
+			healthChecker.UpdateClockSkewStatus(0, err)
+		}
+		return
+	}
+
+	// Extract skew value from metrics
+	var skewMs int64
+	if len(metrics) > 0 {
+		skewMs = int64(metrics[0].Value)
+	}
+
+	// Store metrics
+	if len(metrics) > 0 {
+		if err := store.StoreBatch(ctx, metrics); err != nil {
+			logger.Error("Failed to store clock skew metrics",
+				slog.Int("count", len(metrics)),
+				slog.Any("error", err),
+			)
+		}
+	}
+
+	// Update health status
+	if healthChecker != nil {
+		healthChecker.UpdateClockSkewStatus(skewMs, nil)
+	}
+
+	logger.Debug("Clock skew check completed", slog.Int64("skew_ms", skewMs))
 }
