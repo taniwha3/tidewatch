@@ -2,12 +2,7 @@ package collector
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"regexp"
-	"runtime"
-	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/taniwha3/thugshells/internal/models"
@@ -38,13 +33,13 @@ type NetworkStats struct {
 
 // NetworkCollector collects network interface metrics with filtering and cardinality protection
 type NetworkCollector struct {
-	deviceID              string
-	excludePatterns       []*regexp.Regexp
-	includePattern        *regexp.Regexp
-	maxInterfaces         int
-	mu                    sync.Mutex
-	previousStats         map[string]*NetworkStats // Interface -> previous stats for wraparound detection
-	interfacesDroppedTotal uint64                    // Monotonic counter of dropped interfaces across all collections
+	deviceID               string
+	excludePatterns        []*regexp.Regexp
+	includePattern         *regexp.Regexp
+	maxInterfaces          int
+	mu                     sync.Mutex
+	previousStats          map[string]*NetworkStats // Interface -> previous stats for wraparound detection
+	interfacesDroppedTotal uint64                   // Monotonic counter of dropped interfaces across all collections
 }
 
 // NetworkCollectorConfig configures the network collector
@@ -103,139 +98,9 @@ func (c *NetworkCollector) Name() string {
 }
 
 // Collect gathers network interface metrics
+// Platform-specific implementations in network_linux.go and network_darwin.go
 func (c *NetworkCollector) Collect(ctx context.Context) ([]*models.Metric, error) {
-	if runtime.GOOS == "darwin" {
-		// Mock network metrics on macOS for development
-		return c.collectMock(), nil
-	}
-
-	// Read /proc/net/dev
-	data, err := os.ReadFile("/proc/net/dev")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read /proc/net/dev: %w", err)
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	var metrics []*models.Metric
-	interfacesProcessed := 0
-	interfacesDropped := 0
-
-	lines := strings.Split(string(data), "\n")
-	for i, line := range lines {
-		// Skip header lines
-		if i < 2 {
-			continue
-		}
-
-		// Parse line: "  eth0: 123456 ..."
-		parts := strings.Split(line, ":")
-		if len(parts) != 2 {
-			continue
-		}
-
-		ifaceName := strings.TrimSpace(parts[0])
-		if ifaceName == "" {
-			continue
-		}
-
-		// Apply exclusion filters
-		if c.isExcluded(ifaceName) {
-			continue
-		}
-
-		// Apply optional inclusion filter
-		if c.includePattern != nil && !c.includePattern.MatchString(ifaceName) {
-			continue
-		}
-
-		// Cardinality guard: enforce max interfaces
-		if interfacesProcessed >= c.maxInterfaces {
-			interfacesDropped++
-			c.interfacesDroppedTotal++ // Increment monotonic total
-			continue
-		}
-
-		// Parse stats
-		fields := strings.Fields(parts[1])
-		if len(fields) < 16 {
-			continue
-		}
-
-		// /proc/net/dev format (bytes packets errs drop fifo frame compressed multicast)
-		// RX: fields 0-7
-		// TX: fields 8-15
-		rxBytes, _ := strconv.ParseUint(fields[0], 10, 64)
-		rxPackets, _ := strconv.ParseUint(fields[1], 10, 64)
-		rxErrors, _ := strconv.ParseUint(fields[2], 10, 64)
-		txBytes, _ := strconv.ParseUint(fields[8], 10, 64)
-		txPackets, _ := strconv.ParseUint(fields[9], 10, 64)
-		txErrors, _ := strconv.ParseUint(fields[10], 10, 64)
-
-		currentStats := &NetworkStats{
-			RxBytes:   rxBytes,
-			RxPackets: rxPackets,
-			RxErrors:  rxErrors,
-			TxBytes:   txBytes,
-			TxPackets: txPackets,
-			TxErrors:  txErrors,
-		}
-
-		// Check for wraparound (counters are uint64, can theoretically wrap)
-		// Packet counters wrap more frequently than byte counters (especially if kernel exposes as 32-bit)
-		if prevStats, exists := c.previousStats[ifaceName]; exists {
-			if currentStats.RxBytes < prevStats.RxBytes ||
-				currentStats.RxPackets < prevStats.RxPackets ||
-				currentStats.RxErrors < prevStats.RxErrors ||
-				currentStats.TxBytes < prevStats.TxBytes ||
-				currentStats.TxPackets < prevStats.TxPackets ||
-				currentStats.TxErrors < prevStats.TxErrors {
-				// Wraparound detected, skip this sample but update baseline
-				// so the next collection can resume (otherwise interface is stuck forever)
-				c.previousStats[ifaceName] = currentStats
-				continue
-			}
-		}
-
-		// Store current stats for next collection
-		c.previousStats[ifaceName] = currentStats
-
-		// Create metrics (counters)
-		metrics = append(metrics,
-			models.NewMetric("network.rx_bytes_total", float64(rxBytes), c.deviceID).
-				WithTag("interface", ifaceName))
-
-		metrics = append(metrics,
-			models.NewMetric("network.rx_packets_total", float64(rxPackets), c.deviceID).
-				WithTag("interface", ifaceName))
-
-		metrics = append(metrics,
-			models.NewMetric("network.rx_errors_total", float64(rxErrors), c.deviceID).
-				WithTag("interface", ifaceName))
-
-		metrics = append(metrics,
-			models.NewMetric("network.tx_bytes_total", float64(txBytes), c.deviceID).
-				WithTag("interface", ifaceName))
-
-		metrics = append(metrics,
-			models.NewMetric("network.tx_packets_total", float64(txPackets), c.deviceID).
-				WithTag("interface", ifaceName))
-
-		metrics = append(metrics,
-			models.NewMetric("network.tx_errors_total", float64(txErrors), c.deviceID).
-				WithTag("interface", ifaceName))
-
-		interfacesProcessed++
-	}
-
-	// Emit cardinality metric (monotonic total across all collections)
-	if c.interfacesDroppedTotal > 0 {
-		metrics = append(metrics,
-			models.NewMetric("network.interfaces_dropped_total", float64(c.interfacesDroppedTotal), c.deviceID))
-	}
-
-	return metrics, nil
+	return c.collect(ctx)
 }
 
 // isExcluded checks if an interface should be excluded
@@ -248,44 +113,39 @@ func (c *NetworkCollector) isExcluded(ifaceName string) bool {
 	return false
 }
 
-// collectMock returns mock network metrics for macOS development
+// collectMock returns mock network metrics for testing
 func (c *NetworkCollector) collectMock() []*models.Metric {
-	// Mock: 2 interfaces (en0, en1) with realistic traffic
-	interfaces := []string{"en0", "en1"}
-	metrics := []*models.Metric{}
+	var metrics []*models.Metric
+
+	// Mock data for 2 interfaces (en0, en1)
+	interfaces := []struct {
+		name     string
+		rxBytes  uint64
+		rxPkts   uint64
+		rxErrs   uint64
+		txBytes  uint64
+		txPkts   uint64
+		txErrs   uint64
+	}{
+		{"en0", 1000000, 10000, 0, 500000, 5000, 0},
+		{"en1", 2000000, 20000, 5, 1000000, 10000, 2},
+	}
 
 	for _, iface := range interfaces {
-		// Mock some traffic (GB range)
-		rxBytes := uint64(10 * 1024 * 1024 * 1024) // 10 GB
-		txBytes := uint64(5 * 1024 * 1024 * 1024)  // 5 GB
-		rxPackets := uint64(1000000)
-		txPackets := uint64(500000)
-		rxErrors := uint64(0) // Mock: no errors
-		txErrors := uint64(0)
-
 		metrics = append(metrics,
-			models.NewMetric("network.rx_bytes_total", float64(rxBytes), c.deviceID).
-				WithTag("interface", iface))
-
-		metrics = append(metrics,
-			models.NewMetric("network.rx_packets_total", float64(rxPackets), c.deviceID).
-				WithTag("interface", iface))
-
-		metrics = append(metrics,
-			models.NewMetric("network.rx_errors_total", float64(rxErrors), c.deviceID).
-				WithTag("interface", iface))
-
-		metrics = append(metrics,
-			models.NewMetric("network.tx_bytes_total", float64(txBytes), c.deviceID).
-				WithTag("interface", iface))
-
-		metrics = append(metrics,
-			models.NewMetric("network.tx_packets_total", float64(txPackets), c.deviceID).
-				WithTag("interface", iface))
-
-		metrics = append(metrics,
-			models.NewMetric("network.tx_errors_total", float64(txErrors), c.deviceID).
-				WithTag("interface", iface))
+			models.NewMetric("network.rx_bytes_total", float64(iface.rxBytes), c.deviceID).
+				WithTag("interface", iface.name),
+			models.NewMetric("network.rx_packets_total", float64(iface.rxPkts), c.deviceID).
+				WithTag("interface", iface.name),
+			models.NewMetric("network.rx_errors_total", float64(iface.rxErrs), c.deviceID).
+				WithTag("interface", iface.name),
+			models.NewMetric("network.tx_bytes_total", float64(iface.txBytes), c.deviceID).
+				WithTag("interface", iface.name),
+			models.NewMetric("network.tx_packets_total", float64(iface.txPkts), c.deviceID).
+				WithTag("interface", iface.name),
+			models.NewMetric("network.tx_errors_total", float64(iface.txErrs), c.deviceID).
+				WithTag("interface", iface.name),
+		)
 	}
 
 	return metrics
