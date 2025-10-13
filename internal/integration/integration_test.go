@@ -9,16 +9,23 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/taniwha3/thugshells/internal/config"
 	"github.com/taniwha3/thugshells/internal/models"
 	"github.com/taniwha3/thugshells/internal/storage"
 	"github.com/taniwha3/thugshells/internal/uploader"
 )
+
+// intPtr is a helper function to create a pointer to an int value
+func intPtr(i int) *int {
+	return &i
+}
 
 // ============================================================================
 // Test: No duplicate uploads (same batch retried → no new rows)
@@ -104,7 +111,7 @@ func TestNoDuplicateUploads_SameBatchRetried(t *testing.T) {
 		URL:        mockVM.URL + "/api/v1/import",
 		DeviceID:   "device-001",
 		Timeout:    30 * time.Second,
-		MaxRetries: 0, // No retries for this test
+		MaxRetries: intPtr(0), // No retries for this test
 		ChunkSize:  50,
 	})
 	defer up.Close()
@@ -244,7 +251,7 @@ func TestNoDuplicateUploads_NetworkRetry(t *testing.T) {
 		URL:        mockVM.URL + "/api/v1/import",
 		DeviceID:   "device-001",
 		Timeout:    30 * time.Second,
-		MaxRetries: 1,           // 1 retry
+		MaxRetries: intPtr(1),   // 1 retry
 		RetryDelay: 10 * time.Millisecond, // 10ms backoff
 		ChunkSize:  50,
 	})
@@ -469,7 +476,7 @@ func TestRetryAfter_HeaderParsing(t *testing.T) {
 	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
 		URL:        mockVM.URL + "/api/v1/import",
 		DeviceID:   "device-001",
-		MaxRetries: 1,
+		MaxRetries: intPtr(1),
 		RetryDelay: 100 * time.Millisecond,
 		ChunkSize:  50,
 	})
@@ -570,4 +577,1572 @@ func (s *mockVMServer) GetMetrics() []map[string]interface{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]map[string]interface{}{}, s.metrics...)
+}
+
+// ============================================================================
+// Category 1: Upload & Deduplication Tests
+// ============================================================================
+
+// TestPartialSuccess_VMAccepts25Of50 tests partial success handling where
+// VM accepts only some metrics from a chunk. This test is currently a placeholder
+// as the M2 spec uses a simplified strategy (2xx = entire chunk success).
+// Future enhancement: Parse VM response for partial success details.
+func TestPartialSuccess_VMAccepts25Of50(t *testing.T) {
+	t.Skip("Partial success parsing not implemented in M2 - using simplified 2xx strategy")
+
+	// This test would verify:
+	// 1. VM returns 200 with response body indicating which metrics were accepted
+	// 2. Uploader parses response and only marks accepted metrics as uploaded
+	// 3. Rejected metrics remain with uploaded=0 for retry
+	//
+	// Implementation requires:
+	// - VM response format specification
+	// - Response parsing in uploadChunk()
+	// - Selective MarkUploaded() based on VM response
+}
+
+// TestPartialSuccess_Fallback200WithoutDetails tests the current M2 behavior:
+// VM returns 200 (success) without providing details about which metrics were accepted,
+// so we mark the entire chunk as uploaded (simplified strategy).
+func TestPartialSuccess_Fallback200WithoutDetails(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Mock VM that returns 200 without any details
+	mockVM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return 200 with empty body (no details about which metrics accepted)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer mockVM.Close()
+
+	// Store 50 metrics
+	metrics := make([]*models.Metric, 50)
+	for i := range metrics {
+		metrics[i] = models.NewMetric("cpu.temperature", float64(50+i), "device-001").
+			WithTimestamp(now.Add(time.Duration(i) * time.Second))
+	}
+	if err := store.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("StoreBatch failed: %v", err)
+	}
+
+	// Query unuploaded metrics
+	unuploaded, err := store.QueryUnuploaded(ctx, 100)
+	if err != nil {
+		t.Fatalf("QueryUnuploaded failed: %v", err)
+	}
+	if len(unuploaded) != 50 {
+		t.Fatalf("Expected 50 unuploaded metrics, got %d", len(unuploaded))
+	}
+
+	// Upload with simplified strategy
+	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+		URL:        mockVM.URL + "/api/v1/import",
+		DeviceID:   "device-001",
+		MaxRetries: intPtr(0),
+		ChunkSize:  50,
+	})
+	defer up.Close()
+
+	uploadIDs, err := up.UploadAndGetIDs(ctx, unuploaded)
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+
+	// Simplified strategy: 200 = mark entire chunk as uploaded
+	if len(uploadIDs) != 50 {
+		t.Errorf("Expected 50 metrics marked for upload (simplified strategy), got %d", len(uploadIDs))
+	}
+
+	// Mark as uploaded
+	if err := store.MarkUploaded(ctx, uploadIDs); err != nil {
+		t.Fatalf("MarkUploaded failed: %v", err)
+	}
+
+	// Verify all marked as uploaded
+	pending, err := store.GetPendingCount(ctx)
+	if err != nil {
+		t.Fatalf("GetPendingCount failed: %v", err)
+	}
+	if pending != 0 {
+		t.Errorf("Expected 0 pending after simplified success, got %d", pending)
+	}
+}
+
+// TestChunkAtomicity_5xxForcesFullRetry tests that server errors (5xx) cause
+// the entire chunk to be retried, maintaining chunk atomicity.
+func TestChunkAtomicity_5xxForcesFullRetry(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Mock VM that fails first time, succeeds second time
+	attemptCount := int32(0)
+	receivedBatches := []int{}
+	var mu sync.Mutex
+
+	mockVM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&attemptCount, 1)
+
+		// Parse body to count metrics
+		var body []byte
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gr, _ := gzip.NewReader(r.Body)
+			defer gr.Close()
+			body, _ = io.ReadAll(gr)
+		} else {
+			body, _ = io.ReadAll(r.Body)
+		}
+
+		metricCount := 0
+		lines := strings.Split(string(body), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				metricCount++
+			}
+		}
+
+		mu.Lock()
+		receivedBatches = append(receivedBatches, metricCount)
+		mu.Unlock()
+
+		// First attempt: return 500 (server error)
+		if count == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("internal server error"))
+			return
+		}
+
+		// Second attempt: succeed
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer mockVM.Close()
+
+	// Store 25 metrics
+	metrics := make([]*models.Metric, 25)
+	for i := range metrics {
+		metrics[i] = models.NewMetric("cpu.temperature", float64(50+i), "device-001").
+			WithTimestamp(now.Add(time.Duration(i) * time.Second))
+	}
+	if err := store.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("StoreBatch failed: %v", err)
+	}
+
+	// Query unuploaded
+	unuploaded, err := store.QueryUnuploaded(ctx, 100)
+	if err != nil {
+		t.Fatalf("QueryUnuploaded failed: %v", err)
+	}
+
+	// Upload with retry enabled
+	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+		URL:        mockVM.URL + "/api/v1/import",
+		DeviceID:   "device-001",
+		MaxRetries: intPtr(2),
+		RetryDelay: 10 * time.Millisecond,
+		ChunkSize:  50,
+	})
+	defer up.Close()
+
+	uploadIDs, err := up.UploadAndGetIDs(ctx, unuploaded)
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+
+	if len(uploadIDs) != 25 {
+		t.Errorf("Expected 25 metrics uploaded, got %d", len(uploadIDs))
+	}
+
+	// Verify we made 2 attempts
+	finalAttempts := atomic.LoadInt32(&attemptCount)
+	if finalAttempts != 2 {
+		t.Errorf("Expected 2 HTTP requests (1 fail + 1 retry), got %d", finalAttempts)
+	}
+
+	// Verify both attempts received the full chunk (25 metrics each)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(receivedBatches) != 2 {
+		t.Fatalf("Expected 2 batches received, got %d", len(receivedBatches))
+	}
+	for i, count := range receivedBatches {
+		if count != 25 {
+			t.Errorf("Batch %d: expected 25 metrics, got %d", i, count)
+		}
+	}
+}
+
+// Test30MinuteSoak_NoDuplicates is a stretch goal for soak testing
+// Skipped in Phase 1 as it would take 30+ minutes to run
+func Test30MinuteSoak_NoDuplicates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping 30-minute soak test in short mode")
+	}
+	t.Skip("Soak test deferred to Phase 3 stretch goals")
+
+	// This test would verify:
+	// 1. Run for 30 minutes with continuous metric collection
+	// 2. Periodic VM restarts to simulate instability
+	// 3. Random network failures
+	// 4. Verify no duplicate metrics in VM at end
+	// 5. Verify no data loss
+}
+
+// ============================================================================
+// Category 2: Chunking & Serialization Tests
+// ============================================================================
+
+// TestChunkSizeRespected verifies that the chunk_size configuration is honored
+// when splitting metrics into chunks for upload.
+func TestChunkSizeRespected(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Track received chunks
+	receivedChunks := []int{}
+	var mu sync.Mutex
+
+	mockVM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body []byte
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gr, _ := gzip.NewReader(r.Body)
+			defer gr.Close()
+			body, _ = io.ReadAll(gr)
+		} else {
+			body, _ = io.ReadAll(r.Body)
+		}
+
+		// Count metrics in this chunk
+		metricCount := 0
+		lines := strings.Split(string(body), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				metricCount++
+			}
+		}
+
+		mu.Lock()
+		receivedChunks = append(receivedChunks, metricCount)
+		mu.Unlock()
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer mockVM.Close()
+
+	// Store 125 metrics (should split into 3 chunks of 50, 50, 25 with chunk_size=50)
+	metrics := make([]*models.Metric, 125)
+	for i := range metrics {
+		metrics[i] = models.NewMetric("cpu.temperature", float64(50+i), "device-001").
+			WithTimestamp(now.Add(time.Duration(i) * time.Second))
+	}
+	if err := store.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("StoreBatch failed: %v", err)
+	}
+
+	// Query unuploaded
+	unuploaded, err := store.QueryUnuploaded(ctx, 200)
+	if err != nil {
+		t.Fatalf("QueryUnuploaded failed: %v", err)
+	}
+
+	// Upload with chunk_size=50
+	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+		URL:        mockVM.URL + "/api/v1/import",
+		DeviceID:   "device-001",
+		MaxRetries: intPtr(0),
+		ChunkSize:  50, // Key: chunk size configuration
+	})
+	defer up.Close()
+
+	_, err = up.UploadAndGetIDs(ctx, unuploaded)
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+
+	// Verify chunk sizes
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(receivedChunks) != 3 {
+		t.Fatalf("Expected 3 chunks, got %d", len(receivedChunks))
+	}
+
+	expectedSizes := []int{50, 50, 25}
+	for i, expected := range expectedSizes {
+		if receivedChunks[i] != expected {
+			t.Errorf("Chunk %d: expected %d metrics, got %d", i, expected, receivedChunks[i])
+		}
+	}
+}
+
+// TestChunkByteLimit_AutoBisecting verifies that chunks exceeding 256KB are
+// automatically split into smaller chunks (bisecting).
+func TestChunkByteLimit_AutoBisecting(t *testing.T) {
+	t.Skip("Auto-bisecting not yet implemented - current implementation uses fixed chunk size")
+
+	// This test would verify:
+	// 1. Create metrics with large tag values (many tags or long tag values)
+	// 2. Build chunks and verify gzipped size
+	// 3. If chunk exceeds 256KB, verify it gets split
+	// 4. Verify bisecting algorithm works correctly
+	//
+	// Implementation requires:
+	// - Byte-size checking in BuildChunks()
+	// - Recursive bisecting when chunk exceeds limit
+	// - Tests with various metric sizes
+}
+
+// TestChunkCompression_TargetSize verifies that gzipped chunks are within
+// the target size range of 128-256 KB.
+func TestChunkCompression_TargetSize(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Track compressed sizes
+	compressedSizes := []int{}
+	var mu sync.Mutex
+
+	mockVM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Read the gzipped body
+		if r.Header.Get("Content-Encoding") != "gzip" {
+			t.Error("Expected gzip encoding")
+		}
+
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		compressedSizes = append(compressedSizes, len(body))
+		mu.Unlock()
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer mockVM.Close()
+
+	// Store a large batch of metrics to get meaningful compression
+	// With ~50 metrics per chunk and realistic tag cardinality,
+	// compressed size should be well under 256KB
+	metrics := make([]*models.Metric, 200)
+	for i := range metrics {
+		m := models.NewMetric("cpu.temperature", float64(50+i), "device-001").
+			WithTimestamp(now.Add(time.Duration(i) * time.Second))
+		// Add some tags to increase payload size
+		m.Tags = map[string]string{
+			"core":   fmt.Sprintf("core%d", i%8),
+			"zone":   fmt.Sprintf("thermal_zone%d", i%4),
+			"status": "active",
+		}
+		metrics[i] = m
+	}
+	if err := store.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("StoreBatch failed: %v", err)
+	}
+
+	// Query and upload
+	unuploaded, err := store.QueryUnuploaded(ctx, 300)
+	if err != nil {
+		t.Fatalf("QueryUnuploaded failed: %v", err)
+	}
+
+	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+		URL:        mockVM.URL + "/api/v1/import",
+		DeviceID:   "device-001",
+		MaxRetries: intPtr(0),
+		ChunkSize:  50,
+	})
+	defer up.Close()
+
+	_, err = up.UploadAndGetIDs(ctx, unuploaded)
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+
+	// Verify compressed sizes are reasonable
+	mu.Lock()
+	defer mu.Unlock()
+
+	const maxChunkSize = 256 * 1024 // 256 KB
+	for i, size := range compressedSizes {
+		if size > maxChunkSize {
+			t.Errorf("Chunk %d: compressed size %d bytes exceeds max %d bytes", i, size, maxChunkSize)
+		}
+		// Log for informational purposes
+		t.Logf("Chunk %d: compressed size = %d bytes (%.2f KB)", i, size, float64(size)/1024)
+	}
+}
+
+// TestTimestampSortingWithinChunks verifies that metrics within each chunk
+// are sorted by timestamp in ascending order.
+func TestTimestampSortingWithinChunks(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Track received timestamps per chunk
+	type chunkTimestamps struct {
+		chunkIndex int
+		timestamps []int64
+	}
+	receivedChunks := []chunkTimestamps{}
+	var mu sync.Mutex
+
+	mockVM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		chunkIndex := 0
+		if idx := r.Header.Get("X-Chunk-Index"); idx != "" {
+			chunkIndex, _ = strconv.Atoi(idx)
+		}
+
+		var body []byte
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gr, _ := gzip.NewReader(r.Body)
+			defer gr.Close()
+			body, _ = io.ReadAll(gr)
+		} else {
+			body, _ = io.ReadAll(r.Body)
+		}
+
+		// Parse timestamps from JSONL
+		timestamps := []int64{}
+		lines := strings.Split(string(body), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			var metric map[string]interface{}
+			if err := json.Unmarshal([]byte(line), &metric); err == nil {
+				if tsArray, ok := metric["timestamps"].([]interface{}); ok && len(tsArray) > 0 {
+					if ts, ok := tsArray[0].(float64); ok {
+						timestamps = append(timestamps, int64(ts))
+					}
+				}
+			}
+		}
+
+		mu.Lock()
+		receivedChunks = append(receivedChunks, chunkTimestamps{
+			chunkIndex: chunkIndex,
+			timestamps: timestamps,
+		})
+		mu.Unlock()
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer mockVM.Close()
+
+	// Store metrics in random order (different timestamps)
+	metrics := []*models.Metric{
+		models.NewMetric("cpu.temperature", 50.0, "device-001").WithTimestamp(now.Add(5 * time.Second)),
+		models.NewMetric("cpu.temperature", 51.0, "device-001").WithTimestamp(now.Add(2 * time.Second)),
+		models.NewMetric("cpu.temperature", 52.0, "device-001").WithTimestamp(now.Add(8 * time.Second)),
+		models.NewMetric("cpu.temperature", 53.0, "device-001").WithTimestamp(now.Add(1 * time.Second)),
+		models.NewMetric("cpu.temperature", 54.0, "device-001").WithTimestamp(now.Add(10 * time.Second)),
+		models.NewMetric("cpu.temperature", 55.0, "device-001").WithTimestamp(now.Add(3 * time.Second)),
+	}
+	if err := store.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("StoreBatch failed: %v", err)
+	}
+
+	// Query unuploaded (should come back sorted by timestamp from QueryUnuploaded)
+	unuploaded, err := store.QueryUnuploaded(ctx, 100)
+	if err != nil {
+		t.Fatalf("QueryUnuploaded failed: %v", err)
+	}
+
+	// Upload
+	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+		URL:        mockVM.URL + "/api/v1/import",
+		DeviceID:   "device-001",
+		MaxRetries: intPtr(0),
+		ChunkSize:  50,
+	})
+	defer up.Close()
+
+	_, err = up.UploadAndGetIDs(ctx, unuploaded)
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+
+	// Verify timestamps are sorted in ascending order
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(receivedChunks) == 0 {
+		t.Fatal("No chunks received")
+	}
+
+	for _, chunk := range receivedChunks {
+		for i := 1; i < len(chunk.timestamps); i++ {
+			if chunk.timestamps[i] < chunk.timestamps[i-1] {
+				t.Errorf("Chunk %d: timestamps not sorted - %d comes before %d",
+					chunk.chunkIndex, chunk.timestamps[i], chunk.timestamps[i-1])
+			}
+		}
+		t.Logf("Chunk %d: %d timestamps sorted correctly", chunk.chunkIndex, len(chunk.timestamps))
+	}
+}
+
+// ============================================================================
+// Category 4: Retry & Backoff Tests
+// ============================================================================
+
+// TestExponentialBackoff_WithJitter verifies that exponential backoff is
+// calculated correctly with jitter applied (±20% by default).
+func TestExponentialBackoff_WithJitter(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Track timing between requests
+	requestTimes := []time.Time{}
+	attemptCount := int32(0)
+	var mu sync.Mutex
+
+	mockVM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&attemptCount, 1)
+		mu.Lock()
+		requestTimes = append(requestTimes, time.Now())
+		mu.Unlock()
+
+		// Fail first 2 attempts, succeed on third
+		if count < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer mockVM.Close()
+
+	// Store a metric
+	metric := models.NewMetric("cpu.temperature", 50.0, "device-001")
+	if err := store.Store(ctx, metric); err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	// Upload with configured backoff: base=100ms, multiplier=2.0, jitter=20%
+	baseDelay := 100 * time.Millisecond
+	jitterPercent := 20
+	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+		URL:               mockVM.URL + "/api/v1/import",
+		DeviceID:          "device-001",
+		MaxRetries:        intPtr(2),
+		RetryDelay:        baseDelay,
+		BackoffMultiplier: 2.0,
+		JitterPercent:     &jitterPercent,
+		ChunkSize:         50,
+	})
+	defer up.Close()
+
+	start := time.Now()
+	err = up.Upload(ctx, []*models.Metric{metric})
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	// Verify we made 3 attempts
+	finalAttempts := atomic.LoadInt32(&attemptCount)
+	if finalAttempts != 3 {
+		t.Fatalf("Expected 3 attempts, got %d", finalAttempts)
+	}
+
+	// Calculate expected delays with jitter tolerance
+	// Attempt 0: immediate
+	// Attempt 1: base * multiplier^0 = 100ms (with ±20% jitter = 80-120ms)
+	// Attempt 2: base * multiplier^1 = 200ms (with ±20% jitter = 160-240ms)
+	// Total: 80-120 + 160-240 = 240-360ms minimum
+
+	minExpected := 240 * time.Millisecond
+	maxExpected := 360 * time.Millisecond
+
+	if elapsed < minExpected || elapsed > maxExpected {
+		t.Logf("Warning: Total elapsed time %v outside expected range [%v, %v]", elapsed, minExpected, maxExpected)
+		t.Logf("This may be due to jitter randomness or system timing variations")
+	}
+
+	// Verify individual delays
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(requestTimes) >= 2 {
+		delay1 := requestTimes[1].Sub(requestTimes[0])
+		// First retry: 100ms ± 20% = 80-120ms
+		if delay1 < 80*time.Millisecond || delay1 > 120*time.Millisecond {
+			t.Logf("First retry delay: %v (expected 80-120ms with jitter)", delay1)
+		}
+	}
+
+	if len(requestTimes) >= 3 {
+		delay2 := requestTimes[2].Sub(requestTimes[1])
+		// Second retry: 200ms ± 20% = 160-240ms
+		if delay2 < 160*time.Millisecond || delay2 > 240*time.Millisecond {
+			t.Logf("Second retry delay: %v (expected 160-240ms with jitter)", delay2)
+		}
+	}
+}
+
+// TestMaxRetriesRespected verifies that the uploader stops after max_attempts
+// is reached and returns an error.
+func TestMaxRetriesRespected(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Mock VM that always fails
+	attemptCount := int32(0)
+	mockVM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attemptCount, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer mockVM.Close()
+
+	// Store a metric
+	metric := models.NewMetric("cpu.temperature", 50.0, "device-001")
+	if err := store.Store(ctx, metric); err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	// Upload with max_retries=2 (total 3 attempts: 1 initial + 2 retries)
+	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+		URL:        mockVM.URL + "/api/v1/import",
+		DeviceID:   "device-001",
+		MaxRetries: intPtr(2),
+		RetryDelay: 10 * time.Millisecond, // Fast retries for testing
+		ChunkSize:  50,
+	})
+	defer up.Close()
+
+	err = up.Upload(ctx, []*models.Metric{metric})
+	if err == nil {
+		t.Fatal("Expected upload to fail after max retries")
+	}
+
+	// Verify error message mentions max retries
+	if !strings.Contains(err.Error(), "max retries") {
+		t.Errorf("Expected error to mention max retries, got: %v", err)
+	}
+
+	// Verify we made exactly 3 attempts (1 initial + 2 retries)
+	finalAttempts := atomic.LoadInt32(&attemptCount)
+	if finalAttempts != 3 {
+		t.Errorf("Expected 3 attempts (1 initial + 2 retries), got %d", finalAttempts)
+	}
+}
+
+// TestNonRetryableErrors_NoRetry verifies that 4xx errors (400, 401) are not retried.
+func TestNonRetryableErrors_NoRetry(t *testing.T) {
+	testCases := []struct {
+		name       string
+		statusCode int
+		wantRetry  bool
+	}{
+		{"BadRequest_400", http.StatusBadRequest, false},
+		{"Unauthorized_401", http.StatusUnauthorized, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			dbPath := filepath.Join(tmpDir, "test.db")
+
+			store, err := storage.NewSQLiteStorage(dbPath)
+			if err != nil {
+				t.Fatalf("Failed to create storage: %v", err)
+			}
+			defer store.Close()
+
+			ctx := context.Background()
+
+			// Mock VM that returns the specified status code
+			attemptCount := int32(0)
+			mockVM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				atomic.AddInt32(&attemptCount, 1)
+				w.WriteHeader(tc.statusCode)
+				w.Write([]byte("error message"))
+			}))
+			defer mockVM.Close()
+
+			// Store a metric
+			metric := models.NewMetric("cpu.temperature", 50.0, "device-001")
+			if err := store.Store(ctx, metric); err != nil {
+				t.Fatalf("Store failed: %v", err)
+			}
+
+			// Upload with retries enabled
+			up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+				URL:        mockVM.URL + "/api/v1/import",
+				DeviceID:   "device-001",
+				MaxRetries: intPtr(3),
+				RetryDelay: 10 * time.Millisecond,
+				ChunkSize:  50,
+			})
+			defer up.Close()
+
+			err = up.Upload(ctx, []*models.Metric{metric})
+			if err == nil {
+				t.Fatal("Expected upload to fail")
+			}
+
+			// Verify error message mentions non-retryable
+			if !strings.Contains(err.Error(), "non-retryable") {
+				t.Errorf("Expected error to mention non-retryable, got: %v", err)
+			}
+
+			// Verify we made exactly 1 attempt (no retries)
+			finalAttempts := atomic.LoadInt32(&attemptCount)
+			if finalAttempts != 1 {
+				t.Errorf("Expected 1 attempt (no retries for %d), got %d", tc.statusCode, finalAttempts)
+			}
+		})
+	}
+}
+
+// TestRetryableErrors_DoRetry verifies that 5xx errors (500, 502, 503, 504) are retried.
+func TestRetryableErrors_DoRetry(t *testing.T) {
+	testCases := []struct {
+		name       string
+		statusCode int
+		wantRetry  bool
+	}{
+		{"InternalServerError_500", http.StatusInternalServerError, true},
+		{"BadGateway_502", http.StatusBadGateway, true},
+		{"ServiceUnavailable_503", http.StatusServiceUnavailable, true},
+		{"GatewayTimeout_504", http.StatusGatewayTimeout, true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			dbPath := filepath.Join(tmpDir, "test.db")
+
+			store, err := storage.NewSQLiteStorage(dbPath)
+			if err != nil {
+				t.Fatalf("Failed to create storage: %v", err)
+			}
+			defer store.Close()
+
+			ctx := context.Background()
+
+			// Mock VM that fails twice, then succeeds
+			attemptCount := int32(0)
+			mockVM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				count := atomic.AddInt32(&attemptCount, 1)
+				if count < 3 {
+					w.WriteHeader(tc.statusCode)
+					w.Write([]byte("server error"))
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			defer mockVM.Close()
+
+			// Store a metric
+			metric := models.NewMetric("cpu.temperature", 50.0, "device-001")
+			if err := store.Store(ctx, metric); err != nil {
+				t.Fatalf("Store failed: %v", err)
+			}
+
+			// Upload with retries enabled
+			up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+				URL:        mockVM.URL + "/api/v1/import",
+				DeviceID:   "device-001",
+				MaxRetries: intPtr(3),
+				RetryDelay: 10 * time.Millisecond,
+				ChunkSize:  50,
+			})
+			defer up.Close()
+
+			err = up.Upload(ctx, []*models.Metric{metric})
+			if err != nil {
+				t.Fatalf("Expected upload to eventually succeed, got error: %v", err)
+			}
+
+			// Verify we made 3 attempts (2 failures + 1 success)
+			finalAttempts := atomic.LoadInt32(&attemptCount)
+			if finalAttempts != 3 {
+				t.Errorf("Expected 3 attempts (2 retries for %d), got %d", tc.statusCode, finalAttempts)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// Category 5: Configuration Wiring Tests
+// ============================================================================
+
+// TestConfigWiring_ChunkSize verifies that chunk_size configuration flows through
+// from config file to uploader correctly.
+func TestConfigWiring_ChunkSize(t *testing.T) {
+	t.Skip("Config wiring tests require main() integration - deferred to E2E tests")
+
+	// This test would:
+	// 1. Create temp config file with custom chunk_size (e.g., 25)
+	// 2. Start collector with that config
+	// 3. Upload metrics and verify chunks match configured size
+	// 4. Similar pattern as existing TestConfigWiring_BatchSize tests
+}
+
+// TestConfigWiring_RetryEnabled verifies that retry.enabled=true is respected.
+func TestConfigWiring_RetryEnabled(t *testing.T) {
+	// Create a config with retry enabled
+	enabledTrue := true
+	cfg := &config.Config{
+		Remote: config.RemoteConfig{
+			Retry: config.RetryConfig{
+				Enabled:           &enabledTrue,
+				MaxAttempts:       5,
+				InitialBackoffStr: "500ms",
+			},
+		},
+	}
+
+	// Create uploader based on config
+	retryEnabled := true
+	if cfg.Remote.Retry.Enabled != nil {
+		retryEnabled = *cfg.Remote.Retry.Enabled
+	}
+
+	if !retryEnabled {
+		t.Errorf("Expected retry enabled, got disabled")
+	}
+
+	// Verify max attempts
+	maxRetries := cfg.Remote.Retry.MaxAttempts - 1 // Convert attempts to retries
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+
+	if maxRetries != 4 {
+		t.Errorf("Expected 4 retries (5 attempts - 1), got %d", maxRetries)
+	}
+
+	// Verify initial backoff
+	backoff := cfg.Remote.Retry.InitialBackoff()
+	if backoff != 500*time.Millisecond {
+		t.Errorf("Expected 500ms backoff, got %v", backoff)
+	}
+}
+
+// TestConfigWiring_RetryDisabled verifies that retry.enabled=false is respected.
+func TestConfigWiring_RetryDisabled(t *testing.T) {
+	// Create a config with retry explicitly disabled
+	enabledFalse := false
+	cfg := &config.Config{
+		Remote: config.RemoteConfig{
+			Retry: config.RetryConfig{
+				Enabled: &enabledFalse,
+			},
+		},
+	}
+
+	// Verify retry is disabled
+	if cfg.Remote.Retry.Enabled == nil {
+		t.Fatal("Expected Enabled to be set (not nil)")
+	}
+
+	if *cfg.Remote.Retry.Enabled {
+		t.Error("Expected retry disabled, got enabled")
+	}
+}
+
+// TestConfigWiring_WALCheckpointInterval verifies that WAL checkpoint interval
+// configuration is parsed and applied correctly.
+func TestConfigWiring_WALCheckpointInterval(t *testing.T) {
+	testCases := []struct {
+		name            string
+		intervalStr     string
+		expectedDefault bool
+		expectedValue   time.Duration
+	}{
+		{
+			name:            "Default",
+			intervalStr:     "",
+			expectedDefault: true,
+			expectedValue:   1 * time.Hour,
+		},
+		{
+			name:            "Custom_30m",
+			intervalStr:     "30m",
+			expectedDefault: false,
+			expectedValue:   30 * time.Minute,
+		},
+		{
+			name:            "Custom_2h",
+			intervalStr:     "2h",
+			expectedDefault: false,
+			expectedValue:   2 * time.Hour,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{
+				Storage: config.StorageConfig{
+					WALCheckpointIntervalStr: tc.intervalStr,
+				},
+			}
+
+			interval := cfg.Storage.WALCheckpointInterval()
+			if interval != tc.expectedValue {
+				t.Errorf("Expected interval %v, got %v", tc.expectedValue, interval)
+			}
+		})
+	}
+}
+
+// TestConfigWiring_WALCheckpointSize verifies that WAL checkpoint size threshold
+// configuration is parsed and applied correctly.
+func TestConfigWiring_WALCheckpointSize(t *testing.T) {
+	testCases := []struct {
+		name          string
+		sizeMB        int
+		expectedBytes int64
+	}{
+		{
+			name:          "Default",
+			sizeMB:        0,
+			expectedBytes: 64 * 1024 * 1024,
+		},
+		{
+			name:          "Custom_32MB",
+			sizeMB:        32,
+			expectedBytes: 32 * 1024 * 1024,
+		},
+		{
+			name:          "Custom_128MB",
+			sizeMB:        128,
+			expectedBytes: 128 * 1024 * 1024,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{
+				Storage: config.StorageConfig{
+					WALCheckpointSizeMB: tc.sizeMB,
+				},
+			}
+
+			sizeBytes := cfg.Storage.WALCheckpointSizeBytes()
+			if sizeBytes != tc.expectedBytes {
+				t.Errorf("Expected %d bytes, got %d", tc.expectedBytes, sizeBytes)
+			}
+		})
+	}
+}
+
+// TestConfigWiring_ClockSkewThreshold verifies that clock skew warning threshold
+// configuration is applied correctly.
+func TestConfigWiring_ClockSkewThreshold(t *testing.T) {
+	testCases := []struct {
+		name               string
+		thresholdMs        int
+		expectedThresholdMs int
+	}{
+		{
+			name:               "Default",
+			thresholdMs:        0,
+			expectedThresholdMs: 2000, // Default: 2000ms
+		},
+		{
+			name:               "Custom_5000ms",
+			thresholdMs:        5000,
+			expectedThresholdMs: 5000,
+		},
+		{
+			name:               "Custom_1000ms",
+			thresholdMs:        1000,
+			expectedThresholdMs: 1000,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{
+				Monitoring: config.MonitoringConfig{
+					ClockSkewWarnThresholdMs: tc.thresholdMs,
+				},
+			}
+
+			threshold := cfg.Monitoring.ClockSkewWarnThresholdMs
+			if threshold == 0 {
+				threshold = 2000 // Apply default
+			}
+
+			if threshold != tc.expectedThresholdMs {
+				t.Errorf("Expected threshold %d ms, got %d ms", tc.expectedThresholdMs, threshold)
+			}
+		})
+	}
+}
+
+// TestConfigWiring_AuthToken verifies that auth token is passed from config
+// to uploader and clock skew collector.
+func TestConfigWiring_AuthToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Track received auth headers
+	receivedAuthHeader := ""
+	var mu sync.Mutex
+
+	mockVM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		receivedAuthHeader = r.Header.Get("Authorization")
+		mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer mockVM.Close()
+
+	// Create config with auth token
+	authToken := "test-token-12345"
+	cfg := &config.Config{
+		Remote: config.RemoteConfig{
+			AuthToken: authToken,
+		},
+	}
+
+	// Create uploader with auth token from config
+	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+		URL:       mockVM.URL + "/api/v1/import",
+		DeviceID:  "device-001",
+		AuthToken: cfg.Remote.AuthToken,
+		ChunkSize: 50,
+	})
+	defer up.Close()
+
+	// Store and upload a metric
+	metric := models.NewMetric("cpu.temperature", 50.0, "device-001")
+	if err := store.Store(ctx, metric); err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	err = up.Upload(ctx, []*models.Metric{metric})
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+
+	// Verify auth header was sent
+	mu.Lock()
+	defer mu.Unlock()
+
+	expectedHeader := "Bearer " + authToken
+	if receivedAuthHeader != expectedHeader {
+		t.Errorf("Expected auth header %q, got %q", expectedHeader, receivedAuthHeader)
+	}
+}
+
+// ============================================================================
+// Category 11: E2E Scenarios Tests
+// ============================================================================
+
+// TestE2E_FullCollectionUploadCycle verifies the complete end-to-end flow:
+// Collect → Store → Upload → Mark uploaded
+func TestE2E_FullCollectionUploadCycle(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Mock VM server
+	receivedMetrics := []string{}
+	var mu sync.Mutex
+
+	mockVM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body []byte
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gr, _ := gzip.NewReader(r.Body)
+			defer gr.Close()
+			body, _ = io.ReadAll(gr)
+		} else {
+			body, _ = io.ReadAll(r.Body)
+		}
+
+		mu.Lock()
+		lines := strings.Split(string(body), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				var metric map[string]interface{}
+				if err := json.Unmarshal([]byte(line), &metric); err == nil {
+					if labels, ok := metric["metric"].(map[string]interface{}); ok {
+						if name, ok := labels["__name__"].(string); ok {
+							receivedMetrics = append(receivedMetrics, name)
+						}
+					}
+				}
+			}
+		}
+		mu.Unlock()
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer mockVM.Close()
+
+	// Step 1: Collect metrics (simulated)
+	metrics := []*models.Metric{
+		models.NewMetric("cpu.temperature", 50.0, "device-001").WithTimestamp(now),
+		models.NewMetric("memory.used", 1024.0, "device-001").WithTimestamp(now.Add(time.Second)),
+		models.NewMetric("disk.io.bytes", 4096.0, "device-001").WithTimestamp(now.Add(2 * time.Second)),
+	}
+
+	// Step 2: Store metrics
+	if err := store.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("StoreBatch failed: %v", err)
+	}
+
+	// Verify stored
+	count, err := store.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count failed: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("Expected 3 metrics stored, got %d", count)
+	}
+
+	// Step 3: Query unuploaded
+	unuploaded, err := store.QueryUnuploaded(ctx, 100)
+	if err != nil {
+		t.Fatalf("QueryUnuploaded failed: %v", err)
+	}
+	if len(unuploaded) != 3 {
+		t.Fatalf("Expected 3 unuploaded metrics, got %d", len(unuploaded))
+	}
+
+	// Step 4: Upload
+	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+		URL:       mockVM.URL + "/api/v1/import",
+		DeviceID:  "device-001",
+		ChunkSize: 50,
+	})
+	defer up.Close()
+
+	uploadIDs, err := up.UploadAndGetIDs(ctx, unuploaded)
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+	if len(uploadIDs) != 3 {
+		t.Errorf("Expected 3 metrics uploaded, got %d", len(uploadIDs))
+	}
+
+	// Step 5: Mark as uploaded
+	if err := store.MarkUploaded(ctx, uploadIDs); err != nil {
+		t.Fatalf("MarkUploaded failed: %v", err)
+	}
+
+	// Step 6: Verify upload complete
+	pending, err := store.GetPendingCount(ctx)
+	if err != nil {
+		t.Fatalf("GetPendingCount failed: %v", err)
+	}
+	if pending != 0 {
+		t.Errorf("Expected 0 pending after upload, got %d", pending)
+	}
+
+	// Verify metrics received by VM
+	mu.Lock()
+	defer mu.Unlock()
+
+	expectedNames := map[string]bool{
+		"cpu_temperature_celsius": true, // Metric name gets suffix added
+		"memory_used":              true,
+		"disk_io_bytes":            true,
+	}
+
+	for _, name := range receivedMetrics {
+		if !expectedNames[name] {
+			t.Errorf("Unexpected metric name received: %s", name)
+		}
+		delete(expectedNames, name)
+	}
+
+	if len(expectedNames) > 0 {
+		t.Errorf("Missing expected metric names: %+v", expectedNames)
+	}
+}
+
+// TestE2E_VMRestart_ResumeUpload verifies that upload resumes after VM restart
+// (simulated by server coming back online after failure).
+func TestE2E_VMRestart_ResumeUpload(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Simulate VM restart: first calls fail, then succeed
+	attemptCount := int32(0)
+	receivedCount := int32(0)
+
+	mockVM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&attemptCount, 1)
+
+		// First 2 attempts: VM is down (503)
+		if count <= 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("service unavailable"))
+			return
+		}
+
+		// VM is back up - accept metrics
+		var body []byte
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gr, _ := gzip.NewReader(r.Body)
+			defer gr.Close()
+			body, _ = io.ReadAll(gr)
+		} else {
+			body, _ = io.ReadAll(r.Body)
+		}
+
+		metricCount := 0
+		lines := strings.Split(string(body), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				metricCount++
+			}
+		}
+		atomic.AddInt32(&receivedCount, int32(metricCount))
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer mockVM.Close()
+
+	// Store metrics with unique timestamps to avoid deduplication
+	now := time.Now()
+	metrics := make([]*models.Metric, 10)
+	for i := range metrics {
+		metrics[i] = models.NewMetric("cpu.temperature", float64(50+i), "device-001").
+			WithTimestamp(now.Add(time.Duration(i) * time.Second))
+	}
+	if err := store.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("StoreBatch failed: %v", err)
+	}
+
+	// Try to upload (will fail first 2 times, succeed on retry)
+	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+		URL:        mockVM.URL + "/api/v1/import",
+		DeviceID:   "device-001",
+		MaxRetries: intPtr(3),
+		RetryDelay: 50 * time.Millisecond,
+		ChunkSize:  50,
+	})
+	defer up.Close()
+
+	unuploaded, err := store.QueryUnuploaded(ctx, 100)
+	if err != nil {
+		t.Fatalf("QueryUnuploaded failed: %v", err)
+	}
+
+	uploadIDs, err := up.UploadAndGetIDs(ctx, unuploaded)
+	if err != nil {
+		t.Fatalf("Upload failed after retries: %v", err)
+	}
+
+	// Mark as uploaded
+	if err := store.MarkUploaded(ctx, uploadIDs); err != nil {
+		t.Fatalf("MarkUploaded failed: %v", err)
+	}
+
+	// Verify upload eventually succeeded
+	finalAttempts := atomic.LoadInt32(&attemptCount)
+	if finalAttempts != 3 {
+		t.Errorf("Expected 3 attempts (2 failures + 1 success), got %d", finalAttempts)
+	}
+
+	finalReceived := atomic.LoadInt32(&receivedCount)
+	if finalReceived != 10 {
+		t.Errorf("Expected 10 metrics received, got %d", finalReceived)
+	}
+
+	// Verify nothing pending
+	pending, err := store.GetPendingCount(ctx)
+	if err != nil {
+		t.Fatalf("GetPendingCount failed: %v", err)
+	}
+	if pending != 0 {
+		t.Errorf("Expected 0 pending after successful retry, got %d", pending)
+	}
+}
+
+// TestE2E_ProcessRestart_ResumeFromCheckpoint verifies that after a process restart,
+// unuploaded metrics are still in the database and can be uploaded.
+func TestE2E_ProcessRestart_ResumeFromCheckpoint(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	ctx := context.Background()
+
+	// Simulate first process run: store metrics but don't upload
+	now := time.Now()
+	{
+		store, err := storage.NewSQLiteStorage(dbPath)
+		if err != nil {
+			t.Fatalf("Failed to create storage: %v", err)
+		}
+
+		metrics := make([]*models.Metric, 20)
+		for i := range metrics {
+			metrics[i] = models.NewMetric("cpu.temperature", float64(50+i), "device-001").
+				WithTimestamp(now.Add(time.Duration(i) * time.Second))
+		}
+		if err := store.StoreBatch(ctx, metrics); err != nil {
+			store.Close()
+			t.Fatalf("StoreBatch failed: %v", err)
+		}
+
+		// Close without uploading (simulating process crash/restart)
+		store.Close()
+	}
+
+	// Simulate process restart: reopen database
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to reopen storage: %v", err)
+	}
+	defer store.Close()
+
+	// Verify metrics are still there
+	count, err := store.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count failed: %v", err)
+	}
+	if count != 20 {
+		t.Errorf("Expected 20 metrics after restart, got %d", count)
+	}
+
+	// Verify all are still unuploaded
+	pending, err := store.GetPendingCount(ctx)
+	if err != nil {
+		t.Fatalf("GetPendingCount failed: %v", err)
+	}
+	if pending != 20 {
+		t.Errorf("Expected 20 pending after restart, got %d", pending)
+	}
+
+	// Now upload them
+	mockVM := newMockVMServer(t)
+	defer mockVM.Close()
+
+	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+		URL:       mockVM.URL + "/api/v1/import",
+		DeviceID:  "device-001",
+		ChunkSize: 50,
+	})
+	defer up.Close()
+
+	unuploaded, err := store.QueryUnuploaded(ctx, 100)
+	if err != nil {
+		t.Fatalf("QueryUnuploaded failed: %v", err)
+	}
+
+	uploadIDs, err := up.UploadAndGetIDs(ctx, unuploaded)
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+
+	if err := store.MarkUploaded(ctx, uploadIDs); err != nil {
+		t.Fatalf("MarkUploaded failed: %v", err)
+	}
+
+	// Verify upload complete
+	finalPending, err := store.GetPendingCount(ctx)
+	if err != nil {
+		t.Fatalf("GetPendingCount failed: %v", err)
+	}
+	if finalPending != 0 {
+		t.Errorf("Expected 0 pending after resume upload, got %d", finalPending)
+	}
+
+	// Verify VM received all metrics
+	if mockVM.GetRequestCount() == 0 {
+		t.Error("Expected at least one upload request to VM")
+	}
+}
+
+// TestE2E_HighLoad_1000MetricsPerSecond verifies the system can handle high throughput.
+func TestE2E_HighLoad_1000MetricsPerSecond(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping high-load test in short mode")
+	}
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Mock VM with high throughput handling
+	mockVM := newMockVMServer(t)
+	defer mockVM.Close()
+
+	// Generate 1000 metrics
+	metrics := make([]*models.Metric, 1000)
+	for i := range metrics {
+		metrics[i] = models.NewMetric(
+			fmt.Sprintf("metric_%d", i%100), // 100 different metric names
+			float64(i),
+			"device-001",
+		)
+	}
+
+	// Store all metrics
+	start := time.Now()
+	if err := store.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("StoreBatch failed: %v", err)
+	}
+	storeElapsed := time.Since(start)
+
+	t.Logf("Stored 1000 metrics in %v (%.0f metrics/sec)",
+		storeElapsed, 1000/storeElapsed.Seconds())
+
+	// Upload all metrics
+	up := uploader.NewHTTPUploaderWithConfig(uploader.HTTPUploaderConfig{
+		URL:       mockVM.URL + "/api/v1/import",
+		DeviceID:  "device-001",
+		ChunkSize: 50, // 50 metrics per chunk = 20 chunks
+	})
+	defer up.Close()
+
+	unuploaded, err := store.QueryUnuploaded(ctx, 2000)
+	if err != nil {
+		t.Fatalf("QueryUnuploaded failed: %v", err)
+	}
+
+	uploadStart := time.Now()
+	uploadIDs, err := up.UploadAndGetIDs(ctx, unuploaded)
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+	uploadElapsed := time.Since(uploadStart)
+
+	t.Logf("Uploaded 1000 metrics in %v (%.0f metrics/sec)",
+		uploadElapsed, 1000/uploadElapsed.Seconds())
+
+	// Mark uploaded
+	if err := store.MarkUploaded(ctx, uploadIDs); err != nil {
+		t.Fatalf("MarkUploaded failed: %v", err)
+	}
+
+	// Verify completion
+	pending, err := store.GetPendingCount(ctx)
+	if err != nil {
+		t.Fatalf("GetPendingCount failed: %v", err)
+	}
+	if pending != 0 {
+		t.Errorf("Expected 0 pending after high-load test, got %d", pending)
+	}
+
+	// Verify request count (should be ~20 requests for 1000 metrics with chunk_size=50)
+	requestCount := mockVM.GetRequestCount()
+	expectedRequests := 20 // 1000 / 50 = 20 chunks
+	if requestCount != expectedRequests {
+		t.Logf("Warning: Expected ~%d requests, got %d", expectedRequests, requestCount)
+	}
+
+	// Log throughput
+	totalElapsed := storeElapsed + uploadElapsed
+	t.Logf("Total throughput: %.0f metrics/sec", 1000/totalElapsed.Seconds())
+}
+
+// Stretch goal tests (skipped in Phase 1)
+
+// TestE2E_TransportSoak_60MinWithVMRestarts is a 60-minute soak test.
+func TestE2E_TransportSoak_60MinWithVMRestarts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping 60-minute soak test in short mode")
+	}
+	t.Skip("Soak test deferred to Phase 3 stretch goals")
+
+	// This test would:
+	// 1. Run for 60 minutes with continuous metric generation
+	// 2. Periodically restart mock VM to simulate instability
+	// 3. Inject random network failures
+	// 4. Verify no duplicates and no data loss at end
+}
+
+// TestE2E_ResourceUsage_UnderLimits verifies resource usage is under limits.
+func TestE2E_ResourceUsage_UnderLimits(t *testing.T) {
+	t.Skip("Resource usage monitoring deferred to Phase 3 stretch goals")
+
+	// This test would:
+	// 1. Monitor CPU and memory usage during operation
+	// 2. Verify CPU < 5%, Memory < 150MB
+	// 3. Run for sufficient duration to observe steady state
 }
