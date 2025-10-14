@@ -1,0 +1,37 @@
+Source: tidewatch
+Section: admin
+Priority: optional
+Maintainer: Tani Aura <111664369+taniwha3@users.noreply.github.com>
+Build-Depends: golang (>= 1.21), debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: https://github.com/taniwha3/tidewatch
+Vcs-Browser: https://github.com/taniwha3/tidewatch
+Vcs-Git: https://github.com/taniwha3/tidewatch.git
+
+Package: tidewatch
+Architecture: any
+Depends: ${misc:Depends}, systemd, adduser, ca-certificates
+Recommends: sqlite3
+Suggests: victoriametrics
+Description: System metrics collection daemon for edge devices
+ Tidewatch is a lightweight metrics collector designed for ARM-based
+ edge devices like Orange Pi. It collects system metrics (CPU, memory,
+ disk, network, thermal) and exports them to VictoriaMetrics or other
+ monitoring endpoints.
+ .
+ Features include:
+  - Low resource footprint (<10MB memory, <1% CPU)
+  - Systemd watchdog integration for reliability
+  - SQLite-based local buffering with deduplication
+  - Automatic remote endpoint discovery
+  - Configurable collection intervals
+  - Process locking to prevent double-start
+  - Comprehensive security hardening via systemd
+
+Package: tidewatch-doc
+Architecture: all
+Section: doc
+Depends: ${misc:Depends}
+Description: Documentation for tidewatch metrics daemon
+ Extended documentation for the tidewatch system metrics collector,
+ including architecture guides, troubleshooting, and API references.

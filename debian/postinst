@@ -1,0 +1,110 @@
+#!/bin/sh
+set -e
+
+PACKAGE="tidewatch"
+USER="tidewatch"
+GROUP="tidewatch"
+DATADIR="/var/lib/tidewatch"
+CONFDIR="/etc/tidewatch"
+LOCKFILE="${DATADIR}/tidewatch.lock"
+DBFILE="${DATADIR}/metrics.db"
+
+case "$1" in
+    configure)
+        # Create system user and group
+        if ! getent group "$GROUP" > /dev/null 2>&1; then
+            addgroup --system "$GROUP" || true
+        fi
+
+        if ! getent passwd "$USER" > /dev/null 2>&1; then
+            adduser --system --home "$DATADIR" --no-create-home \
+                    --ingroup "$GROUP" --disabled-password \
+                    --disabled-login --shell /bin/false \
+                    --gecos "Tidewatch Metrics Daemon" \
+                    "$USER" || true
+        fi
+
+        # Create directories
+        if [ ! -d "$DATADIR" ]; then
+            mkdir -p "$DATADIR"
+        fi
+
+        if [ ! -d "$CONFDIR" ]; then
+            mkdir -p "$CONFDIR"
+        fi
+
+        # Set ownership and permissions
+        chown -R "${USER}:${GROUP}" "$DATADIR"
+        chmod 750 "$DATADIR"
+
+        chown root:${GROUP} "$CONFDIR"
+        chmod 750 "$CONFDIR"
+
+        # Set config file permissions only if it exists
+        if [ -f "${CONFDIR}/config.yaml" ]; then
+            chown root:${GROUP} "${CONFDIR}/config.yaml"
+            chmod 640 "${CONFDIR}/config.yaml"
+        fi
+
+        # Remove stale lock files from crash
+        if [ -f "$LOCKFILE" ]; then
+            # Check if process still running
+            if [ -r "$LOCKFILE" ]; then
+                PID=$(cat "$LOCKFILE" 2>/dev/null || echo "")
+                if [ -n "$PID" ] && ! kill -0 "$PID" 2>/dev/null; then
+                    echo "Removing stale lock file"
+                    rm -f "$LOCKFILE"
+                fi
+            fi
+        fi
+
+        # Run database migrations on upgrade
+        if [ -n "$2" ]; then
+            echo "Upgrading from version $2"
+
+            # Backup database before migration
+            if [ -f "$DBFILE" ]; then
+                BACKUP="${DBFILE}.backup-$(date +%Y%m%d-%H%M%S)"
+                cp "$DBFILE" "$BACKUP"
+                echo "Database backed up to: $BACKUP"
+            fi
+        fi
+
+        # Reload systemd configuration
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+
+            # Only enable on fresh install, respect admin choice on upgrade
+            if [ -z "$2" ]; then
+                # Fresh install - enable and start service
+                systemctl enable "$PACKAGE.service" || true
+                echo "Starting $PACKAGE service..."
+                systemctl start "$PACKAGE.service" || true
+            else
+                # Upgrade - restart if service was enabled (prerm stopped it)
+                # Don't touch enabled state (respect admin's choice)
+                if systemctl is-enabled --quiet "$PACKAGE.service" 2>/dev/null; then
+                    echo "Restarting $PACKAGE service..."
+                    systemctl start "$PACKAGE.service" || true
+                else
+                    echo "$PACKAGE service is disabled (not starting automatically)"
+                fi
+            fi
+        fi
+
+        # Show status
+        if [ -d /run/systemd/system ]; then
+            if systemctl is-active --quiet "$PACKAGE.service"; then
+                echo "$PACKAGE is running"
+            else
+                echo "Warning: $PACKAGE failed to start, check 'systemctl status $PACKAGE'"
+            fi
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        # Rollback changes if needed
+        ;;
+esac
+
+exit 0

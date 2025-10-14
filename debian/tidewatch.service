@@ -1,0 +1,78 @@
+[Unit]
+Description=Tidewatch Metrics Collection Daemon
+Documentation=https://github.com/taniwha3/tidewatch
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tidewatch
+Group=tidewatch
+
+# Binary and configuration
+ExecStart=/usr/bin/tidewatch -config /etc/tidewatch/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Working directory
+WorkingDirectory=/var/lib/tidewatch
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+StartLimitInterval=200s
+StartLimitBurst=3
+
+# TODO: Enable watchdog after integrating internal/watchdog in cmd/tidewatch/main.go
+# WatchdogSec=60s
+# NotifyAccess=main
+# Type=notify
+
+# Resource limits
+MemoryMax=200M
+MemoryHigh=150M
+CPUQuota=20%
+TasksMax=50
+
+# Security hardening - Privilege restrictions
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Security hardening - Filesystem access
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tidewatch
+ReadOnlyPaths=/etc/tidewatch
+
+# Security hardening - Kernel features
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+
+# Security hardening - Network restrictions
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+
+# Security hardening - System calls
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+
+# Security hardening - Misc
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+PrivateDevices=false
+DevicePolicy=closed
+DeviceAllow=/dev/null rw
+DeviceAllow=/dev/urandom r
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tidewatch
+
+[Install]
+WantedBy=multi-user.target

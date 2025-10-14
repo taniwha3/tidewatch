@@ -1,0 +1,59 @@
+#!/bin/sh
+set -e
+
+PACKAGE="tidewatch"
+USER="tidewatch"
+GROUP="tidewatch"
+DATADIR="/var/lib/tidewatch"
+CONFDIR="/etc/tidewatch"
+
+case "$1" in
+    remove)
+        # Files removed, conffiles kept
+        # Just cleanup systemd state
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+        fi
+        ;;
+
+    purge)
+        # Complete removal - remove everything
+
+        # Remove data directory
+        if [ -d "$DATADIR" ]; then
+            echo "Removing data directory: $DATADIR"
+            rm -rf "$DATADIR"
+        fi
+
+        # Remove configuration directory
+        if [ -d "$CONFDIR" ]; then
+            echo "Removing configuration: $CONFDIR"
+            rm -rf "$CONFDIR"
+        fi
+
+        # Remove user and group
+        if getent passwd "$USER" > /dev/null 2>&1; then
+            echo "Removing user: $USER"
+            deluser --quiet --system "$USER" || true
+        fi
+
+        if getent group "$GROUP" > /dev/null 2>&1; then
+            echo "Removing group: $GROUP"
+            delgroup --quiet --system "$GROUP" || true
+        fi
+
+        # Reload systemd
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+            systemctl reset-failed || true
+        fi
+
+        echo "$PACKAGE has been completely removed"
+        ;;
+
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        # Do nothing
+        ;;
+esac
+
+exit 0

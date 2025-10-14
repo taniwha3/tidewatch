@@ -10,66 +10,67 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 
 ---
 
-## Phase 1: Package Infrastructure
+## Phase 1: Package Infrastructure ✅ COMPLETED
 
 ### Debian Directory Structure
-- [ ] Create `debian/` directory structure
-- [ ] Create `debian/control` with package metadata
-- [ ] Create `debian/changelog` with initial version
-- [ ] Create `debian/copyright` with Apache 2.0 license
-- [ ] Create `debian/install` with file mappings
-- [ ] Create `debian/conffiles` listing config files
+- [x] Create `debian/` directory structure
+- [x] Create `debian/control` with package metadata
+- [x] Create `debian/changelog` with initial version (3.0.0-1)
+- [x] Create `debian/copyright` with Apache 2.0 license
+- [x] ~~Create `debian/install` with file mappings~~ (not needed with nfpm)
+- [x] Create `debian/conffiles` listing config files
 
 ### Maintainer Scripts
-- [ ] Create `debian/postinst` script
-  - [ ] Add user/group creation (tidewatch:tidewatch)
-  - [ ] Add database directory creation
-  - [ ] Add systemd daemon-reload
-  - [ ] Add service enable/start logic
-  - [ ] Add upgrade migration logic
-- [ ] Create `debian/prerm` script
-  - [ ] Add service stop logic
-  - [ ] Add graceful shutdown handling
-- [ ] Create `debian/postrm` script
-  - [ ] Add service cleanup on remove
-  - [ ] Add full purge logic (user, data, logs)
-  - [ ] Add systemd daemon-reload
-- [ ] Create `debian/preinst` script (if needed)
+- [x] Create `debian/postinst` script
+  - [x] Add user/group creation (tidewatch:tidewatch)
+  - [x] Add database directory creation
+  - [x] Add systemd daemon-reload
+  - [x] Add service enable/start logic
+  - [x] Add upgrade migration logic
+- [x] Create `debian/prerm` script
+  - [x] Add service stop logic
+  - [x] Add graceful shutdown handling
+- [x] Create `debian/postrm` script
+  - [x] Add service cleanup on remove
+  - [x] Add full purge logic (user, data, logs)
+  - [x] Add systemd daemon-reload
+- [x] ~~Create `debian/preinst` script~~ (not needed)
 
 ### Systemd Integration
-- [ ] Create `debian/tidewatch.service` unit file
-  - [ ] Set Type=notify for watchdog
-  - [ ] Configure WatchdogSec=60s
-  - [ ] Add security hardening directives
-  - [ ] Set resource limits (CPUQuota, MemoryMax)
-  - [ ] Configure user/group (tidewatch)
-  - [ ] Set working directory (/var/lib/tidewatch)
-- [ ] Create `debian/tidewatch.default` environment file
+- [x] Create `debian/tidewatch.service` unit file
+  - [ ] Set Type=notify for watchdog (deferred to Phase 3)
+  - [ ] Configure WatchdogSec=60s (deferred to Phase 3)
+  - [x] Add security hardening directives
+  - [x] Set resource limits (CPUQuota, MemoryMax)
+  - [x] Configure user/group (tidewatch)
+  - [x] Set working directory (/var/lib/tidewatch)
+- [x] Create `debian/README.Debian` with user documentation
+- [ ] Create `debian/tidewatch.default` environment file (optional, deferred)
   - [ ] Add TIDEWATCH_CONFIG path
   - [ ] Add TIDEWATCH_LOGLEVEL option
   - [ ] Add TIDEWATCH_WATCHDOG option
 
 ### Configuration Files
-- [ ] Create example config: `examples/config.yaml`
-- [ ] Create production config template: `examples/config.prod.yaml`
-- [ ] Create development config: `examples/config.dev.yaml`
-- [ ] Document configuration options in comments
+- [x] Create example config: `configs/config.yaml`
+- [x] Create production config template: `configs/config.prod.yaml`
+- [x] Create development config: `configs/config.dev.yaml`
+- [x] Document configuration options in comments
 
 ---
 
-## Phase 2: Build Automation
+## Phase 2: Build Automation (PARTIALLY COMPLETED)
 
-### nfpm Configuration
-- [ ] Create `nfpm.yaml` in project root
-  - [ ] Configure package name (tidewatch)
-  - [ ] Set version from git tag/semver
-  - [ ] Define architectures (arm64, armhf)
-  - [ ] Declare dependencies (systemd, adduser, ca-certificates)
-  - [ ] Set recommends (sqlite3)
-  - [ ] Set suggests (victoriametrics)
-  - [ ] Map files to install paths
-  - [ ] Configure scripts (postinst, prerm, postrm)
-  - [ ] Define conffiles
+### nfpm Configuration ✅
+- [x] Create `nfpm.yaml` in project root
+  - [x] Configure package name (tidewatch)
+  - [x] Set version from git tag/semver (uses $VERSION env var)
+  - [x] Define architectures (arm64, armhf)
+  - [x] Declare dependencies (systemd, adduser, ca-certificates)
+  - [x] Set recommends (sqlite3)
+  - [x] Set suggests (victoriametrics)
+  - [x] Map files to install paths
+  - [x] Configure scripts (postinst, prerm, postrm)
+  - [x] Define conffiles
 
 ### GitHub Actions Workflow
 - [ ] Create `.github/workflows/package.yml`
@@ -85,7 +86,11 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 - [ ] Verify packages build for both architectures
 
 ### Build Helpers
-- [ ] Create `scripts/build-deb.sh` helper script
+- [x] Create `scripts/build-deb.sh` helper script
+  - [x] Cross-compilation for arm64/armhf
+  - [x] nfpm packaging with --config flag
+  - [x] SHA256 checksum generation
+  - [x] Usage instructions for GPG signing
 - [ ] Create `scripts/sign-package.sh` for GPG signing
 - [ ] Create `scripts/version.sh` for version extraction
 - [ ] Add Makefile targets:
@@ -96,34 +101,41 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 
 ---
 
-## Phase 3: Watchdog & Process Locking Integration
+## Phase 3: Watchdog & Process Locking Integration (NOT STARTED)
+
+⚠️ **BLOCKER**: `cmd/tidewatch/main.go` currently does NOT integrate watchdog or lockfile packages.
+The systemd service expects `Type=notify` but main.go doesn't send systemd notifications yet.
 
 ### Watchdog Integration
-- [ ] Review `internal/watchdog/watchdog.go` implementation
-- [ ] Integrate watchdog in `cmd/main.go`:
-  - [ ] Add watchdog.IsEnabled() check
-  - [ ] Start watchdog goroutine
-  - [ ] Send periodic pings from main loop
+- [x] Review `internal/watchdog/watchdog.go` implementation (exists from M2)
+- [ ] Integrate watchdog in `cmd/tidewatch/main.go`:
+  - [ ] Import `github.com/taniwha3/tidewatch/internal/watchdog`
+  - [ ] Initialize watchdog with `watchdog.NewPinger(logger)`
+  - [ ] Check `wd.IsEnabled()` and start goroutine if true
+  - [ ] Call `wd.NotifyReady()` after initialization
+  - [ ] Start `wd.Start(ctx)` goroutine for periodic pings
+  - [ ] Call `wd.NotifyStopping()` on shutdown
   - [ ] Handle watchdog errors
 - [ ] Test watchdog with systemd in Docker
 - [ ] Verify automatic restart on hang/crash
 - [ ] Document watchdog configuration
 
 ### Process Locking
-- [ ] Review `internal/lockfile/lockfile.go` implementation
-- [ ] Integrate lockfile in `cmd/main.go`:
+- [x] Review `internal/lockfile/lockfile.go` implementation (exists from M2)
+- [ ] Integrate lockfile in `cmd/tidewatch/main.go`:
+  - [ ] Import `github.com/taniwha3/tidewatch/internal/lockfile`
   - [ ] Acquire lock at startup (`/var/lib/tidewatch/tidewatch.lock`)
-  - [ ] Handle lock acquisition failure
-  - [ ] Release lock on clean shutdown
-  - [ ] Clean up stale locks
+  - [ ] Handle lock acquisition failure (exit with error)
+  - [ ] Release lock on clean shutdown (defer lock.Release())
+  - [ ] Stale lock cleanup already handled by postinst script
 - [ ] Test double-start prevention
 - [ ] Verify lock cleanup on crash
 - [ ] Document locking behavior
 
 ### Configuration Updates
-- [ ] Add watchdog config section to YAML
-- [ ] Add lockfile path to config
-- [ ] Update example configs with watchdog settings
+- [ ] Add watchdog config section to YAML (or document it's auto-detected from systemd)
+- [ ] Add lockfile path to config (or use hardcoded `/var/lib/tidewatch/tidewatch.lock`)
+- [ ] Update example configs with watchdog settings (if needed)
 - [ ] Document interaction between watchdog and locking
 
 ---
@@ -201,10 +213,10 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
   - [ ] Permission issues
 
 ### Package Documentation
-- [ ] Create `debian/README.Debian`
-  - [ ] Package-specific notes
-  - [ ] Configuration location
-  - [ ] Service management commands
+- [x] Create `debian/README.Debian`
+  - [x] Package-specific notes
+  - [x] Configuration location
+  - [x] Service management commands
 - [ ] Create `docs/packaging/build-from-source.md`
   - [ ] Build requirements
   - [ ] Cross-compilation setup
@@ -216,7 +228,7 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
   - [ ] Add package architecture notes
 
 ### Changelog & Release Notes
-- [ ] Maintain `debian/changelog` in Debian format
+- [x] Maintain `debian/changelog` in Debian format
 - [ ] Create `CHANGELOG.md` in project root
   - [ ] Document M3 changes
   - [ ] Document watchdog integration
@@ -303,10 +315,26 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 
 ## Progress Summary
 
-**Total Tasks:** TBD (to be counted after task creation)
-**Completed:** 0
-**In Progress:** 0
-**Remaining:** TBD
+**Total Tasks:** ~150 (approximate)
+**Completed:** ~40 (Phase 1 complete, Phase 2 partial)
+**In Progress:** Phase 3 (Watchdog & Lockfile Integration)
+**Remaining:** ~110
 
-**Current Phase:** Phase 1 - Package Infrastructure
-**Status:** Planning Complete, Ready to Begin Implementation
+**Current Phase:** Phase 3 - Watchdog & Process Locking Integration
+**Status:** Phase 1 ✅ Complete | Phase 2 Partial | Phase 3 Ready to Start
+
+### What's Done:
+- ✅ Complete Debian package infrastructure (debian/ directory)
+- ✅ nfpm configuration for multi-arch builds
+- ✅ Build automation script (scripts/build-deb.sh)
+- ✅ Production configuration template
+- ✅ Maintainer scripts (postinst, prerm, postrm)
+- ✅ Systemd service file with security hardening
+- ✅ Package documentation (README.Debian, changelog)
+
+### Next Steps:
+1. **CRITICAL**: Integrate watchdog and lockfile in cmd/tidewatch/main.go
+2. Create GitHub Actions workflow for automated builds
+3. Set up Docker test infrastructure
+4. Run integration tests for install/upgrade/remove scenarios
+5. Complete remaining documentation

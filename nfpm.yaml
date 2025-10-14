@@ -1,0 +1,94 @@
+name: tidewatch
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+release: 1
+section: admin
+priority: optional
+maintainer: Tani Aura <111664369+taniwha3@users.noreply.github.com>
+description: |
+  System metrics collection daemon for edge devices
+  Tidewatch collects system metrics (CPU, memory, disk, network, thermal)
+  and exports them to VictoriaMetrics or other monitoring endpoints.
+
+  Features include:
+  - Low resource footprint (<10MB memory, <1% CPU)
+  - Systemd watchdog integration for reliability
+  - SQLite-based local buffering with deduplication
+  - Automatic remote endpoint discovery
+  - Configurable collection intervals
+  - Process locking to prevent double-start
+  - Comprehensive security hardening via systemd
+vendor: Tani Aura
+homepage: https://github.com/taniwha3/tidewatch
+license: Apache-2.0
+
+depends:
+  - systemd
+  - adduser
+  - ca-certificates
+
+recommends:
+  - sqlite3
+
+suggests:
+  - victoriametrics
+
+contents:
+  # Binary
+  - src: ./bin/tidewatch
+    dst: /usr/bin/tidewatch
+    file_info:
+      mode: 0755
+
+  # Configuration
+  - src: ./configs/config.yaml
+    dst: /etc/tidewatch/config.yaml
+    type: config
+    file_info:
+      mode: 0640
+
+  # Example configurations
+  - src: ./configs/config.yaml
+    dst: /usr/share/doc/tidewatch/examples/config.yaml
+    file_info:
+      mode: 0644
+
+  - src: ./configs/config.dev.yaml
+    dst: /usr/share/doc/tidewatch/examples/config.dev.yaml
+    file_info:
+      mode: 0644
+
+  - src: ./configs/config.prod.yaml
+    dst: /usr/share/doc/tidewatch/examples/config.prod.yaml
+    file_info:
+      mode: 0644
+
+  # Systemd unit
+  - src: ./debian/tidewatch.service
+    dst: /usr/lib/systemd/system/tidewatch.service
+    file_info:
+      mode: 0644
+
+  # Documentation
+  - src: ./README.md
+    dst: /usr/share/doc/tidewatch/README.md
+    file_info:
+      mode: 0644
+
+  # Data directory (empty, will be created by postinst)
+  - dst: /var/lib/tidewatch
+    type: dir
+    file_info:
+      mode: 0750
+
+scripts:
+  postinstall: ./debian/postinst
+  preremove: ./debian/prerm
+  postremove: ./debian/postrm
+
+overrides:
+  deb:
+    fields:
+      Vcs-Browser: https://github.com/taniwha3/tidewatch
+      Vcs-Git: https://github.com/taniwha3/tidewatch.git

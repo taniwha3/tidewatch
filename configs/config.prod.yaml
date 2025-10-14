@@ -1,0 +1,89 @@
+# Tidewatch Production Configuration
+# This is a production-ready configuration for edge devices
+
+device:
+  # Unique device identifier - customize for your device
+  # Examples: orangepi-living-room, rpi-garage, etc.
+  id: changeme-device-001
+
+storage:
+  # Database path
+  path: /var/lib/tidewatch/metrics.db
+
+  # WAL checkpoint settings for optimal performance
+  wal_checkpoint_interval: 1h
+  wal_checkpoint_size_mb: 64
+
+remote:
+  # VictoriaMetrics import endpoint
+  # Update this to your VictoriaMetrics server address
+  url: http://victoriametrics:8428/api/v1/import
+
+  # Enable remote upload
+  enabled: true
+
+  # Upload every 30 seconds (recommended for production)
+  upload_interval: 30s
+
+  # Batch processing settings
+  batch_size: 2500
+  chunk_size: 50
+
+  # Retry configuration with exponential backoff
+  retry:
+    enabled: true
+    max_attempts: 3
+    initial_backoff: 1s
+    max_backoff: 30s
+    backoff_multiplier: 2.0
+    jitter_percent: 20
+
+monitoring:
+  # Clock skew detection endpoint
+  clock_skew_url: http://victoriametrics:8428/health
+  clock_skew_check_interval: 5m
+  clock_skew_warn_threshold_ms: 2000
+
+  # Health check endpoint (Prometheus format)
+  health_address: ":9100"
+
+logging:
+  # Production logging level (info recommended)
+  # Options: debug, info, warn, error
+  level: info
+
+  # Console format for systemd journal
+  # Options: json, console
+  format: console
+
+# Metrics collection configuration
+metrics:
+  # CPU temperature monitoring
+  - name: cpu.temperature
+    interval: 30s
+    enabled: true
+
+  # CPU usage monitoring
+  - name: cpu.usage
+    interval: 30s
+    enabled: true
+
+  # Memory usage monitoring
+  - name: memory.usage
+    interval: 30s
+    enabled: true
+
+  # Disk I/O monitoring
+  - name: disk.io
+    interval: 30s
+    enabled: true
+
+  # Network traffic monitoring
+  - name: network.traffic
+    interval: 30s
+    enabled: true
+
+  # SRT packet loss monitoring (disable if not using SRT)
+  - name: srt.packet_loss
+    interval: 5s
+    enabled: false

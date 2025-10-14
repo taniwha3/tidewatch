@@ -24,9 +24,8 @@ import (
 var (
 	configPath = flag.String("config", "/etc/tidewatch/config.yaml", "Path to config file")
 	version    = flag.Bool("version", false, "Print version and exit")
+	appVersion = "dev" // Set by -ldflags during build
 )
-
-const appVersion = "1.0.0"
 
 func main() {
 	flag.Parse()

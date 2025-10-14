@@ -1,0 +1,33 @@
+#!/bin/sh
+set -e
+
+PACKAGE="tidewatch"
+
+case "$1" in
+    remove|deconfigure)
+        # Stop the service
+        if [ -d /run/systemd/system ]; then
+            echo "Stopping $PACKAGE service..."
+            systemctl stop "$PACKAGE.service" || true
+
+            # Disable on remove (but not upgrade)
+            if [ "$1" = "remove" ]; then
+                systemctl disable "$PACKAGE.service" || true
+            fi
+        fi
+        ;;
+
+    upgrade)
+        # On upgrade, systemd will handle service restart via postinst
+        # We just ensure clean shutdown
+        if [ -d /run/systemd/system ]; then
+            systemctl stop "$PACKAGE.service" || true
+        fi
+        ;;
+
+    failed-upgrade)
+        # Do nothing, let postinst handle recovery
+        ;;
+esac
+
+exit 0

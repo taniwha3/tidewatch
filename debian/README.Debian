@@ -1,0 +1,116 @@
+Tidewatch for Debian
+====================
+
+This package provides the Tidewatch metrics collection daemon for ARM-based
+edge devices running Debian or Ubuntu.
+
+Installation
+------------
+
+The package will automatically:
+- Create a system user and group named 'tidewatch'
+- Install the binary to /usr/bin/tidewatch
+- Install configuration to /etc/tidewatch/config.yaml
+- Create data directory at /var/lib/tidewatch
+- Install and enable the systemd service
+- Start the service automatically
+
+First-Time Configuration
+------------------------
+
+After installation, edit the configuration file:
+
+    sudo nano /etc/tidewatch/config.yaml
+
+Important settings to customize:
+- device.id: Set a unique identifier for this device
+- remote.url: Update to your VictoriaMetrics endpoint
+- remote.enabled: Set to true to enable metric uploads
+
+After making changes, restart the service:
+
+    sudo systemctl restart tidewatch
+
+Service Management
+------------------
+
+Check service status:
+    systemctl status tidewatch
+
+View logs:
+    journalctl -u tidewatch -f
+
+Stop the service:
+    sudo systemctl stop tidewatch
+
+Start the service:
+    sudo systemctl start tidewatch
+
+Disable auto-start:
+    sudo systemctl disable tidewatch
+
+Data Location
+-------------
+
+- Configuration: /etc/tidewatch/
+- Database: /var/lib/tidewatch/metrics.db
+- Lock file: /var/lib/tidewatch/tidewatch.lock
+- Example configs: /usr/share/doc/tidewatch/examples/
+- Logs: journald (use journalctl -u tidewatch)
+
+Upgrading
+---------
+
+When upgrading, the package will:
+- Preserve your configuration file
+- Backup the database automatically
+- Run database migrations if needed
+- Restart the service automatically
+
+If the configuration file has changed in the new version, dpkg will
+prompt you to choose which version to keep.
+
+Uninstalling
+------------
+
+To remove the package but keep configuration and data:
+    sudo apt remove tidewatch
+
+To completely remove everything including data:
+    sudo apt purge tidewatch
+
+Security
+--------
+
+The service runs as a non-privileged user 'tidewatch' with extensive
+systemd security hardening:
+- No new privileges
+- Read-only system directories
+- Limited system call access
+- Memory and CPU quotas
+- Network access restricted to IPv4/IPv6/Unix sockets
+
+Watchdog
+--------
+
+The service uses systemd watchdog with a 60-second timeout. If the
+daemon becomes unresponsive, systemd will automatically restart it.
+
+Troubleshooting
+---------------
+
+Service won't start:
+    journalctl -u tidewatch -n 50
+    systemctl status tidewatch -l
+
+Permission errors:
+    sudo chown -R tidewatch:tidewatch /var/lib/tidewatch
+    sudo chmod 750 /var/lib/tidewatch
+
+Lock file conflicts:
+    # If stale lock prevents start
+    sudo rm /var/lib/tidewatch/tidewatch.lock
+    sudo systemctl start tidewatch
+
+For more information, visit:
+https://github.com/taniwha3/tidewatch

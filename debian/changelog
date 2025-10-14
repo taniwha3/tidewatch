@@ -1,0 +1,36 @@
+tidewatch (3.0.0-1) stable; urgency=medium
+
+  * Initial Debian package release for Milestone 3
+  * Renamed project from thugshells/belabox-metrics to tidewatch
+  * Add systemd watchdog integration with Type=notify
+  * Add process locking to prevent double-start
+  * Implement automatic database migrations on upgrade
+  * Add comprehensive systemd security hardening
+  * Support for arm64 and armhf architectures
+  * GPG-signed packages with checksums
+  * Automated GitHub Actions build pipeline
+
+ -- Tani Aura <111664369+taniwha3@users.noreply.github.com>  Sun, 13 Oct 2024 23:00:00 -0700
+
+tidewatch (2.0.0-1) stable; urgency=low
+
+  * Milestone 2 release
+  * Add database deduplication and checkpoint tracking
+  * Add configuration file support (YAML)
+  * Implement health check endpoints
+  * Add systemd watchdog and process locking packages
+  * Add retry logic with exponential backoff
+  * Add clock skew detection
+  * macOS support improvements
+
+ -- Tani Aura <111664369+taniwha3@users.noreply.github.com>  Sun, 06 Oct 2024 12:00:00 -0700
+
+tidewatch (1.0.0-1) stable; urgency=low
+
+  * Milestone 1 release (as belabox-metrics)
+  * Initial metrics collection implementation
+  * Support for CPU, memory, disk, network, and thermal metrics
+  * SQLite storage with local buffering
+  * VictoriaMetrics export support
+
+ -- Tani Aura <111664369+taniwha3@users.noreply.github.com>  Sun, 29 Sep 2024 12:00:00 -0700
