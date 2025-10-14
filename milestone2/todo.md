@@ -60,6 +60,17 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 
 ## Day 2: Collectors (7-9 hours)
 
+### Platform-Specific Implementation Enhancement ✅ COMPLETE (2h)
+- [x] Added gopsutil dependency (github.com/shirou/gopsutil/v3)
+- [x] Restructured collectors to use Go build tags instead of runtime checks
+- [x] Split CPU collector: cpu.go (common), cpu_linux.go, cpu_darwin.go
+- [x] Split Memory collector: memory.go (common), memory_linux.go, memory_darwin.go
+- [x] Split Network collector: network.go (common), network_linux.go, network_darwin.go
+- [x] Real metrics on macOS: CPU usage (52.7% overall, 10 cores), Memory (3.4 GB used), Network (real interface stats)
+- [x] All 75 tests passing with real metrics verified on macOS
+- [x] **P1 FIX**: Eliminated double 1s sleep in macOS CPU collector (~2000ms → ~1002ms)
+- [x] Benefits: Compile-time platform selection, cleaner architecture, easier maintenance
+
 ### CPU Delta Collector (2-3h) ✅ COMPLETE
 - [x] Create `internal/collector/cpu.go`
 - [x] Implement two-read strategy with cached counters
@@ -73,6 +84,9 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Unit tests: Wraparound handling
 - [x] Unit tests: First-sample skip
 - [x] Unit tests: Aggregate calculation (8 tests, all pass)
+- [x] **ENHANCEMENT**: Real macOS implementation using gopsutil with build tags
+- [x] **ENHANCEMENT**: Split into cpu_linux.go and cpu_darwin.go
+- [x] **P1 FIX**: Eliminate double 1s sleep in macOS collector (50% performance improvement)
 
 ### Memory Collector (1h) ✅ COMPLETE
 - [x] Create `internal/collector/memory.go`
@@ -83,6 +97,8 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Mock for macOS
 - [x] Unit tests: Parsing logic
 - [x] Unit tests: Canonical used calculation (7 tests, all pass)
+- [x] **ENHANCEMENT**: Real macOS implementation using gopsutil with build tags
+- [x] **ENHANCEMENT**: Split into memory_linux.go and memory_darwin.go
 
 ### Disk I/O Collector (1-2h) ✅ COMPLETE
 - [x] Create `internal/collector/disk.go` (already exists)
@@ -112,6 +128,8 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Unit tests: Parsing
 - [x] Unit tests: Wraparound detection
 - [x] Unit tests: Cardinality hard cap
+- [x] **ENHANCEMENT**: Real macOS implementation using gopsutil with build tags
+- [x] **ENHANCEMENT**: Split into network_linux.go and network_darwin.go
 
 ### Clock Skew Detection (1h) ✅ COMPLETE
 - [x] Create `internal/collector/clock.go`
@@ -533,6 +551,9 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - [x] Network counter wraparound detected
 - [x] Network cardinality hard cap (32 interfaces)
 - [x] All thermal zones collecting (SoC, cores, GPU, NPU)
+- [x] **Real metrics on macOS** using gopsutil (CPU, memory, network)
+- [x] **Build tags** for platform-specific implementations
+- [x] **Performance optimized** (CPU collection time reduced by 50% on macOS)
 - [ ] Load averages collecting (future)
 - [ ] System uptime collecting (future)
 
