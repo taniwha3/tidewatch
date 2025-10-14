@@ -8,9 +8,9 @@ mkdir -p bin
 
 # Build for macOS (development)
 echo "Building for macOS (darwin/arm64)..."
-GOOS=darwin GOARCH=arm64 go build -o bin/metrics-collector-darwin \
+GOOS=darwin GOARCH=arm64 go build -o bin/tidewatch-darwin \
     -ldflags "-s -w" \
-    cmd/metrics-collector/main.go
+    cmd/tidewatch/main.go
 
 echo "Building receiver for macOS..."
 GOOS=darwin GOARCH=arm64 go build -o bin/metrics-receiver-darwin \
@@ -19,9 +19,9 @@ GOOS=darwin GOARCH=arm64 go build -o bin/metrics-receiver-darwin \
 
 # Build for Orange Pi (ARM64 Linux)
 echo "Building for Orange Pi (linux/arm64)..."
-GOOS=linux GOARCH=arm64 go build -o bin/metrics-collector-linux-arm64 \
+GOOS=linux GOARCH=arm64 go build -o bin/tidewatch-linux-arm64 \
     -ldflags "-s -w" \
-    cmd/metrics-collector/main.go
+    cmd/tidewatch/main.go
 
 echo "Building receiver for Linux..."
 GOOS=linux GOARCH=arm64 go build -o bin/metrics-receiver-linux-arm64 \

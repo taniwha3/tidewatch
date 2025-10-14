@@ -1,6 +1,6 @@
-# Thugshells Metrics Collector
+# Tidewatch Metrics Collector
 
-A lightweight, high-performance metrics collection system designed for Orange Pi devices running Belabox IRL streaming software. Collects comprehensive system metrics, stores them locally in SQLite, and uploads to VictoriaMetrics.
+A lightweight, high-performance metrics collection system designed for Orange Pi and other ARM devices. Collects comprehensive system metrics, stores them locally in SQLite, and uploads to VictoriaMetrics.
 
 ## Features
 
@@ -35,9 +35,9 @@ A lightweight, high-performance metrics collection system designed for Orange Pi
 ## Project Structure
 
 ```
-thugshells/
+tidewatch/
 ├── cmd/
-│   ├── metrics-collector/    # Main collector binary
+│   ├── tidewatch/    # Main collector binary
 │   └── metrics-receiver/      # Simple HTTP receiver for testing
 ├── internal/
 │   ├── models/                # Metric data structures
@@ -71,7 +71,7 @@ VictoriaMetrics UI: http://localhost:8428/vmui
 ./scripts/build.sh
 
 # Run with default config (sends to VictoriaMetrics)
-./bin/metrics-collector-darwin -config configs/config.yaml
+./bin/tidewatch-darwin -config configs/config.yaml
 ```
 
 ### 3. Query Metrics
@@ -109,13 +109,13 @@ curl http://localhost:9100/health | jq .
 ### 3. Run Collector (in terminal 2)
 
 ```bash
-./bin/metrics-collector-darwin -config configs/config.yaml
+./bin/tidewatch-darwin -config configs/config.yaml
 ```
 
 ### 4. Query SQLite Directly
 
 ```bash
-sqlite3 /var/lib/belabox-metrics/metrics.db \
+sqlite3 /var/lib/tidewatch/metrics.db \
   "SELECT metric_name, metric_value FROM metrics ORDER BY timestamp_ms DESC LIMIT 10"
 ```
 
@@ -130,28 +130,28 @@ sqlite3 /var/lib/belabox-metrics/metrics.db \
 ### 2. Copy to Orange Pi
 
 ```bash
-scp -r bin configs scripts systemd user@orangepi:/tmp/thugshells
+scp -r bin configs scripts systemd user@orangepi:/tmp/tidewatch
 ```
 
 ### 3. Install on Orange Pi
 
 ```bash
 ssh user@orangepi
-cd /tmp/thugshells
-sudo ./scripts/install.sh bin/metrics-collector-linux-arm64
+cd /tmp/tidewatch
+sudo ./scripts/install.sh bin/tidewatch-linux-arm64
 ```
 
 ### 4. Verify Installation
 
 ```bash
 # Check service status
-sudo systemctl status metrics-collector
+sudo systemctl status tidewatch
 
 # Watch logs
-sudo journalctl -u metrics-collector -f
+sudo journalctl -u tidewatch -f
 
 # Query metrics
-sudo sqlite3 /var/lib/belabox-metrics/metrics.db \
+sudo sqlite3 /var/lib/tidewatch/metrics.db \
   "SELECT datetime(timestamp_ms/1000, 'unixepoch') as time,
           metric_name, metric_value
    FROM metrics
@@ -161,14 +161,14 @@ sudo sqlite3 /var/lib/belabox-metrics/metrics.db \
 
 ## Configuration
 
-Configuration file: `/etc/belabox-metrics/config.yaml`
+Configuration file: `/etc/tidewatch/config.yaml`
 
 ```yaml
 device:
   id: belabox-001                          # Unique device identifier
 
 storage:
-  path: /var/lib/belabox-metrics/metrics.db  # SQLite database path
+  path: /var/lib/tidewatch/metrics.db  # SQLite database path
 
 remote:
   url: http://example.com/api/metrics      # Remote endpoint URL
@@ -310,10 +310,10 @@ go test ./... -cover
 
 ```bash
 # Check config validity
-./bin/metrics-collector-darwin -config test-config.yaml -version
+./bin/tidewatch-darwin -config test-config.yaml -version
 
 # Check logs
-sudo journalctl -u metrics-collector --no-pager -n 50
+sudo journalctl -u tidewatch --no-pager -n 50
 ```
 
 ### Metrics not uploading
@@ -323,18 +323,18 @@ sudo journalctl -u metrics-collector --no-pager -n 50
 curl http://localhost:9090/health
 
 # Check collector logs for upload errors
-sudo journalctl -u metrics-collector -f | grep upload
+sudo journalctl -u tidewatch -f | grep upload
 ```
 
 ### Database locked errors
 
 ```bash
 # Check WAL mode is enabled
-sqlite3 /var/lib/belabox-metrics/metrics.db "PRAGMA journal_mode"
+sqlite3 /var/lib/tidewatch/metrics.db "PRAGMA journal_mode"
 # Should return: wal
 
 # Checkpoint WAL if needed
-sqlite3 /var/lib/belabox-metrics/metrics.db "PRAGMA wal_checkpoint(TRUNCATE)"
+sqlite3 /var/lib/tidewatch/metrics.db "PRAGMA wal_checkpoint(TRUNCATE)"
 ```
 
 ## Development
@@ -355,7 +355,7 @@ type Collector interface {
 }
 ```
 
-2. Register in `cmd/metrics-collector/main.go`:
+2. Register in `cmd/tidewatch/main.go`:
 
 ```go
 case "your.metric":

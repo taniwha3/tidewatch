@@ -72,8 +72,8 @@ curl 'http://localhost:8428/api/v1/query_range?query=cpu_temperature_celsius&sta
 ## Data Persistence
 
 Metrics data is persisted in Docker volumes:
-- `thugshells-victoria-data`: VictoriaMetrics storage
-- `thugshells-grafana-data`: Grafana dashboards and settings
+- `tidewatch-victoria-data`: VictoriaMetrics storage
+- `tidewatch-grafana-data`: Grafana dashboards and settings
 
 To completely remove all data:
 ```bash

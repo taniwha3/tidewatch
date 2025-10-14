@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/taniwha3/thugshells/internal/models"
+	"github.com/taniwha3/tidewatch/internal/models"
 )
 
 // collect implements Linux-specific network collection using /proc/net/dev

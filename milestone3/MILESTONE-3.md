@@ -120,7 +120,7 @@ Database: /var/lib/tidewatch/metrics.db
    	dh $@ --buildsystem=golang --with=systemd
 
    override_dh_auto_build:
-   	CGO_ENABLED=0 go build -ldflags="-s -w" -o tidewatch ./cmd/metrics-collector
+   	CGO_ENABLED=0 go build -ldflags="-s -w" -o tidewatch ./cmd/tidewatch
 
    override_dh_auto_install:
    	install -D -m 0755 tidewatch debian/tidewatch/usr/bin/tidewatch
@@ -394,7 +394,7 @@ jobs:
           CGO_ENABLED: 0
         run: |
           go build -ldflags="-s -w -X main.version=${{ steps.version.outputs.version }}" \
-            -o tidewatch-${{ matrix.arch }} ./cmd/metrics-collector
+            -o tidewatch-${{ matrix.arch }} ./cmd/tidewatch
 
       - name: Install nfpm
         run: |

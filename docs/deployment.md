@@ -16,11 +16,11 @@ This guide covers deploying the metrics collector in production with proper secu
 ```bash
 # Clone and build
 git clone https://github.com/taniwha3/thugshells.git
-cd thugshells
-go build -o metrics-collector cmd/collector/main.go
+cd tidewatch
+go build -o tidewatch cmd/collector/main.go
 
 # Or download pre-built binary
-# curl -L https://github.com/taniwha3/thugshells/releases/latest/download/metrics-collector -o metrics-collector
+# curl -L https://github.com/taniwha3/thugshells/releases/latest/download/tidewatch -o tidewatch
 ```
 
 ### 2. Create Dedicated User and Group
@@ -40,21 +40,21 @@ id metrics
 
 ```bash
 # Install binary
-sudo install -m 755 -o root -g root metrics-collector /usr/local/bin/
+sudo install -m 755 -o root -g root tidewatch /usr/local/bin/
 
 # Create directories
-sudo mkdir -p /etc/belabox-metrics
-sudo mkdir -p /var/lib/belabox-metrics
+sudo mkdir -p /etc/tidewatch
+sudo mkdir -p /var/lib/tidewatch
 
 # Set ownership
-sudo chown -R metrics:metrics /var/lib/belabox-metrics
-sudo chown root:metrics /etc/belabox-metrics
-sudo chmod 750 /etc/belabox-metrics
+sudo chown -R metrics:metrics /var/lib/tidewatch
+sudo chown root:metrics /etc/tidewatch
+sudo chmod 750 /etc/tidewatch
 
 # Copy configuration
-sudo cp configs/config.yaml /etc/belabox-metrics/
-sudo chown root:metrics /etc/belabox-metrics/config.yaml
-sudo chmod 640 /etc/belabox-metrics/config.yaml
+sudo cp configs/config.yaml /etc/tidewatch/
+sudo chown root:metrics /etc/tidewatch/config.yaml
+sudo chmod 640 /etc/tidewatch/config.yaml
 ```
 
 ### 4. Create API Token (if using authentication)
@@ -64,39 +64,39 @@ sudo chmod 640 /etc/belabox-metrics/config.yaml
 openssl rand -base64 32 > /tmp/api-token
 
 # Install with restricted permissions
-sudo install -m 600 -o root -g metrics /tmp/api-token /etc/belabox-metrics/api-token
+sudo install -m 600 -o root -g metrics /tmp/api-token /etc/tidewatch/api-token
 rm /tmp/api-token
 
 # Update config to reference token file
-# Edit /etc/belabox-metrics/config.yaml:
+# Edit /etc/tidewatch/config.yaml:
 # remote:
-#   auth_token_file: /etc/belabox-metrics/api-token
+#   auth_token_file: /etc/tidewatch/api-token
 ```
 
 ### 5. Install Systemd Service
 
 ```bash
 # Copy service file
-sudo cp systemd/metrics-collector.service /etc/systemd/system/
+sudo cp systemd/tidewatch.service /etc/systemd/system/
 
 # Reload systemd
 sudo systemctl daemon-reload
 
 # Enable service to start on boot
-sudo systemctl enable metrics-collector
+sudo systemctl enable tidewatch
 
 # Start service
-sudo systemctl start metrics-collector
+sudo systemctl start tidewatch
 
 # Check status
-sudo systemctl status metrics-collector
+sudo systemctl status tidewatch
 ```
 
 ## Configuration
 
 ### Main Configuration File
 
-Edit `/etc/belabox-metrics/config.yaml`:
+Edit `/etc/tidewatch/config.yaml`:
 
 ```yaml
 device_id: "device-001"  # Unique identifier for this device
@@ -108,7 +108,7 @@ upload_interval: 1m
 # Remote endpoint
 remote:
   url: "https://metrics.example.com/api/v1/import"
-  auth_token_file: /etc/belabox-metrics/api-token  # Optional
+  auth_token_file: /etc/tidewatch/api-token  # Optional
   timeout: 30s
 
   # Upload tuning
@@ -126,7 +126,7 @@ remote:
 
 # Local storage
 storage:
-  path: /var/lib/belabox-metrics/metrics.db
+  path: /var/lib/tidewatch/metrics.db
   wal_checkpoint_interval: 1h
   wal_checkpoint_size_mb: 64
 
@@ -156,7 +156,7 @@ disk:
 
 ### Service Configuration
 
-The systemd service file at `/etc/systemd/system/metrics-collector.service` includes:
+The systemd service file at `/etc/systemd/system/tidewatch.service` includes:
 
 **Security Hardening:**
 - Runs as non-root `metrics:metrics` user
@@ -181,16 +181,16 @@ The systemd service file at `/etc/systemd/system/metrics-collector.service` incl
 
 ```bash
 # Service status
-sudo systemctl status metrics-collector
+sudo systemctl status tidewatch
 
 # Live logs
-sudo journalctl -u metrics-collector -f
+sudo journalctl -u tidewatch -f
 
 # Recent logs with context
-sudo journalctl -u metrics-collector -n 100 --no-pager
+sudo journalctl -u tidewatch -n 100 --no-pager
 
 # Logs from specific time
-sudo journalctl -u metrics-collector --since "1 hour ago"
+sudo journalctl -u tidewatch --since "1 hour ago"
 ```
 
 ### Health Checks
@@ -215,39 +215,39 @@ Health statuses:
 
 ```bash
 # Graceful restart
-sudo systemctl restart metrics-collector
+sudo systemctl restart tidewatch
 
 # Reload configuration without restart (if supported)
-sudo systemctl reload metrics-collector
+sudo systemctl reload tidewatch
 
 # Stop service
-sudo systemctl stop metrics-collector
+sudo systemctl stop tidewatch
 ```
 
 ### Updating the Service
 
 ```bash
 # 1. Stop service
-sudo systemctl stop metrics-collector
+sudo systemctl stop tidewatch
 
 # 2. Replace binary
-sudo install -m 755 -o root -g root metrics-collector /usr/local/bin/
+sudo install -m 755 -o root -g root tidewatch /usr/local/bin/
 
 # 3. Start service
-sudo systemctl start metrics-collector
+sudo systemctl start tidewatch
 
 # 4. Verify
-sudo systemctl status metrics-collector
+sudo systemctl status tidewatch
 ```
 
 ### Database Maintenance
 
 ```bash
 # Check database size
-sudo ls -lh /var/lib/belabox-metrics/
+sudo ls -lh /var/lib/tidewatch/
 
 # Check WAL size
-sudo ls -lh /var/lib/belabox-metrics/*-wal
+sudo ls -lh /var/lib/tidewatch/*-wal
 
 # The service automatically checkpoints the WAL hourly and when it exceeds 64MB
 ```
@@ -258,10 +258,10 @@ The service uses file-based locking (flock) to prevent multiple instances:
 
 ```bash
 # Check if lock exists
-ls -l /var/lib/belabox-metrics/metrics.db.lock
+ls -l /var/lib/tidewatch/metrics.db.lock
 
 # Read PID from lock file
-cat /var/lib/belabox-metrics/metrics.db.lock
+cat /var/lib/tidewatch/metrics.db.lock
 ```
 
 **Important Notes:**
@@ -270,7 +270,7 @@ cat /var/lib/belabox-metrics/metrics.db.lock
 - A stale lock file (with PID from dead process) will not prevent a new instance from starting
 - If you see an "already running" error, check if the PID in the lock file is actually running:
   ```bash
-  PID=$(cat /var/lib/belabox-metrics/metrics.db.lock | tr -d '\n')
+  PID=$(cat /var/lib/tidewatch/metrics.db.lock | tr -d '\n')
   ps -p $PID || echo "Process not running - lock is stale but safe to ignore"
   ```
 - The persistent lock file prevents inode-based race conditions where two processes could
@@ -348,7 +348,7 @@ The service exposes health status at `:9100/health`:
 **Prometheus:**
 ```yaml
 scrape_configs:
-  - job_name: 'metrics-collector-health'
+  - job_name: 'tidewatch-health'
     static_configs:
       - targets: ['device-001:9100']
     metrics_path: '/health'
@@ -357,10 +357,10 @@ scrape_configs:
 **Systemd monitoring:**
 ```bash
 # Monitor via systemd
-sudo systemctl show metrics-collector -p ActiveState,SubState,Result,MainPID
+sudo systemctl show tidewatch -p ActiveState,SubState,Result,MainPID
 
 # Integration with monitoring tools
-systemctl is-active metrics-collector || alert
+systemctl is-active tidewatch || alert
 ```
 
 ## Troubleshooting
@@ -369,10 +369,10 @@ systemctl is-active metrics-collector || alert
 
 ```bash
 # Check logs
-sudo journalctl -u metrics-collector -n 50
+sudo journalctl -u tidewatch -n 50
 
 # Common issues:
-# - Permissions on /var/lib/belabox-metrics
+# - Permissions on /var/lib/tidewatch
 # - Invalid configuration
 # - Lock file from crashed process
 # - Port 9100 already in use
@@ -382,7 +382,7 @@ sudo journalctl -u metrics-collector -n 50
 
 ```bash
 # Check actual memory usage
-sudo systemctl status metrics-collector | grep Memory
+sudo systemctl status tidewatch | grep Memory
 
 # If approaching limit:
 # 1. Check pending metrics count via health endpoint
@@ -394,12 +394,12 @@ sudo systemctl status metrics-collector | grep Memory
 
 ```bash
 # Check database integrity
-sudo -u metrics sqlite3 /var/lib/belabox-metrics/metrics.db "PRAGMA integrity_check;"
+sudo -u metrics sqlite3 /var/lib/tidewatch/metrics.db "PRAGMA integrity_check;"
 
 # Vacuum database (reclaim space)
-sudo systemctl stop metrics-collector
-sudo -u metrics sqlite3 /var/lib/belabox-metrics/metrics.db "VACUUM;"
-sudo systemctl start metrics-collector
+sudo systemctl stop tidewatch
+sudo -u metrics sqlite3 /var/lib/tidewatch/metrics.db "VACUUM;"
+sudo systemctl start tidewatch
 ```
 
 ### Clock Skew Warnings
@@ -419,13 +419,13 @@ sudo systemctl restart chronyd
 
 ```bash
 # Check logs for upload errors
-sudo journalctl -u metrics-collector | grep -i upload | grep -i error
+sudo journalctl -u tidewatch | grep -i upload | grep -i error
 
 # Test connectivity to remote endpoint
 curl -I https://metrics.example.com/api/v1/import
 
 # Verify auth token
-curl -H "Authorization: Bearer $(cat /etc/belabox-metrics/api-token)" \
+curl -H "Authorization: Bearer $(cat /etc/tidewatch/api-token)" \
   https://metrics.example.com/api/v1/import
 ```
 
@@ -435,17 +435,17 @@ curl -H "Authorization: Bearer $(cat /etc/belabox-metrics/api-token)" \
 
 ```bash
 # Binary: root-owned, world-executable
-/usr/local/bin/metrics-collector      755 root:root
+/usr/local/bin/tidewatch      755 root:root
 
 # Configuration: root-owned, group-readable
-/etc/belabox-metrics/                 750 root:metrics
-/etc/belabox-metrics/config.yaml      640 root:metrics
+/etc/tidewatch/                 750 root:metrics
+/etc/tidewatch/config.yaml      640 root:metrics
 
 # API token: restricted to service account
-/etc/belabox-metrics/api-token        600 root:metrics
+/etc/tidewatch/api-token        600 root:metrics
 
 # Data directory: service-owned
-/var/lib/belabox-metrics/             750 metrics:metrics
+/var/lib/tidewatch/             750 metrics:metrics
 ```
 
 ### Network Security
@@ -466,7 +466,7 @@ The service file includes extensive hardening:
 
 To verify security settings:
 ```bash
-sudo systemd-analyze security metrics-collector
+sudo systemd-analyze security tidewatch
 ```
 
 ## Backup and Recovery
@@ -475,27 +475,27 @@ sudo systemd-analyze security metrics-collector
 
 ```bash
 # Backup configuration
-sudo tar -czf metrics-collector-config-$(date +%Y%m%d).tar.gz \
-  /etc/belabox-metrics/
+sudo tar -czf tidewatch-config-$(date +%Y%m%d).tar.gz \
+  /etc/tidewatch/
 
 # Restore configuration
-sudo tar -xzf metrics-collector-config-YYYYMMDD.tar.gz -C /
+sudo tar -xzf tidewatch-config-YYYYMMDD.tar.gz -C /
 ```
 
 ### Database Backup
 
-The SQLite database at `/var/lib/belabox-metrics/metrics.db` contains queued metrics. If backlog is low, loss is acceptable. For backup:
+The SQLite database at `/var/lib/tidewatch/metrics.db` contains queued metrics. If backlog is low, loss is acceptable. For backup:
 
 ```bash
 # Stop service
-sudo systemctl stop metrics-collector
+sudo systemctl stop tidewatch
 
 # Backup
-sudo cp /var/lib/belabox-metrics/metrics.db \
+sudo cp /var/lib/tidewatch/metrics.db \
   /backup/metrics-$(date +%Y%m%d).db
 
 # Start service
-sudo systemctl start metrics-collector
+sudo systemctl start tidewatch
 ```
 
 ### Disaster Recovery

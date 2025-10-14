@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taniwha3/thugshells/internal/models"
+	"github.com/taniwha3/tidewatch/internal/models"
 )
 
 // intPtr is a helper function to create a pointer to an int value
@@ -43,8 +43,8 @@ func TestUploadVM_Success(t *testing.T) {
 		if ce := r.Header.Get("Content-Encoding"); ce != "gzip" {
 			t.Errorf("Expected Content-Encoding gzip, got %s", ce)
 		}
-		if ua := r.Header.Get("User-Agent"); ua != "thugshells/1.0" {
-			t.Errorf("Expected User-Agent thugshells/1.0, got %s", ua)
+		if ua := r.Header.Get("User-Agent"); ua != "tidewatch/1.0" {
+			t.Errorf("Expected User-Agent tidewatch/1.0, got %s", ua)
 		}
 		if did := r.Header.Get("X-Device-ID"); did != "device-001" {
 			t.Errorf("Expected X-Device-ID device-001, got %s", did)

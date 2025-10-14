@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/shirou/gopsutil/v3/net"
-	"github.com/taniwha3/thugshells/internal/models"
+	"github.com/taniwha3/tidewatch/internal/models"
 )
 
 // collect implements macOS-specific network collection using gopsutil

@@ -302,7 +302,7 @@ cd ..
 ./scripts/build.sh
 
 # 3. Run collector
-./bin/metrics-collector-darwin -config configs/config.yaml
+./bin/tidewatch-darwin -config configs/config.yaml
 
 # 4. Verify VictoriaMetrics ingestion
 # Open http://localhost:8428
@@ -319,7 +319,7 @@ docker start victoriametrics
 # Verify successful upload after reconnect
 
 # 7. Resource usage check
-ps aux | grep metrics-collector
+ps aux | grep tidewatch
 # Verify <5% CPU, <150MB RAM
 
 # 8. 30-minute soak test
@@ -332,7 +332,7 @@ ps aux | grep metrics-collector
 # Verify skew_ms is reasonable (<1000ms typically)
 
 # 10. WAL size check
-ls -lh /var/lib/belabox-metrics/metrics.db-wal
+ls -lh /var/lib/tidewatch/metrics.db-wal
 # Should stay <64 MB due to checkpoints
 ```
 

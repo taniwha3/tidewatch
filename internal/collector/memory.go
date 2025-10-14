@@ -3,7 +3,7 @@ package collector
 import (
 	"context"
 
-	"github.com/taniwha3/thugshells/internal/models"
+	"github.com/taniwha3/tidewatch/internal/models"
 )
 
 // MemoryCollector collects memory usage metrics

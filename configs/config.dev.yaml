@@ -1,5 +1,5 @@
 # Development configuration
-# Use this with: ./bin/metrics-collector-darwin -config configs/config.dev.yaml
+# Use this with: ./bin/tidewatch-darwin -config configs/config.dev.yaml
 
 device:
   id: belabox-dev-001

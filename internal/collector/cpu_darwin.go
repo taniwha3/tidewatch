@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/taniwha3/thugshells/internal/models"
+	"github.com/taniwha3/tidewatch/internal/models"
 )
 
 // collect implements macOS-specific CPU collection using gopsutil

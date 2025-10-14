@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taniwha3/thugshells/internal/config"
-	"github.com/taniwha3/thugshells/internal/logging"
-	"github.com/taniwha3/thugshells/internal/models"
-	"github.com/taniwha3/thugshells/internal/storage"
-	"github.com/taniwha3/thugshells/internal/uploader"
+	"github.com/taniwha3/tidewatch/internal/config"
+	"github.com/taniwha3/tidewatch/internal/logging"
+	"github.com/taniwha3/tidewatch/internal/models"
+	"github.com/taniwha3/tidewatch/internal/storage"
+	"github.com/taniwha3/tidewatch/internal/uploader"
 )
 
 // intPtr is a helper function to create a pointer to an int value

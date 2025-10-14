@@ -1922,12 +1922,12 @@ CMD ["./metrics-receiver"]
 
 ### Updated Systemd Service (Security Hardening)
 
-**File:** `systemd/metrics-collector.service`
+**File:** `systemd/tidewatch.service`
 
 ```ini
 [Unit]
 Description=Belabox Metrics Collector
-Documentation=https://github.com/taniwha3/thugshells
+Documentation=https://github.com/taniwha3/tidewatch
 After=network-online.target
 Wants=network-online.target
 
@@ -1935,7 +1935,7 @@ Wants=network-online.target
 Type=simple
 User=metrics
 Group=metrics
-ExecStart=/usr/local/bin/metrics-collector -config /etc/belabox-metrics/config.yaml
+ExecStart=/usr/local/bin/tidewatch -config /etc/tidewatch/config.yaml
 
 # Restart policy
 Restart=always
@@ -1972,15 +1972,15 @@ AmbientCapabilities=
 
 # Read-write paths
 # ProtectSystem=strict makes / read-only; explicitly allow our data/config paths
-ReadWritePaths=/var/lib/belabox-metrics
-ReadOnlyPaths=/etc/belabox-metrics
+ReadWritePaths=/var/lib/tidewatch
+ReadOnlyPaths=/etc/tidewatch
 # Collectors need read access to /proc and /sys for system metrics
 # These are allowed by default with ProtectSystem=strict (doesn't block /proc//sys)
 
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=metrics-collector
+SyslogIdentifier=tidewatch
 
 # Watchdog (restart if unhealthy for 60s)
 WatchdogSec=60s
@@ -1991,8 +1991,8 @@ WantedBy=multi-user.target
 
 **Installation notes:**
 - Create `metrics` user/group: `sudo useradd -r -s /bin/false metrics`
-- Set permissions: `sudo chown -R metrics:metrics /var/lib/belabox-metrics`
-- Token file: `sudo chmod 600 /etc/belabox-metrics/api-token`
+- Set permissions: `sudo chown -R metrics:metrics /var/lib/tidewatch`
+- Token file: `sudo chmod 600 /etc/tidewatch/api-token`
 
 ### Configuration
 
@@ -2003,7 +2003,7 @@ device:
   id: belabox-001
 
 storage:
-  path: /var/lib/belabox-metrics/metrics.db
+  path: /var/lib/tidewatch/metrics.db
   wal_checkpoint_interval: 1h
   wal_checkpoint_size_mb: 64
 
@@ -2305,7 +2305,7 @@ func splitIntoChunks(metrics []*models.Metric, targetCount int) [][]*models.Metr
 
 **go.mod example:**
 ```go
-module github.com/taniwha3/thugshells
+module github.com/taniwha3/tidewatch
 
 go 1.22
 
@@ -2778,7 +2778,7 @@ cd ..
 ./scripts/build.sh
 
 # 3. Run collector
-./bin/metrics-collector-darwin -config configs/config.yaml
+./bin/tidewatch-darwin -config configs/config.yaml
 
 # 4. Verify VictoriaMetrics ingestion
 # Open http://localhost:8428
@@ -2795,7 +2795,7 @@ docker start victoriametrics
 # Verify successful upload after reconnect
 
 # 7. Resource usage check
-ps aux | grep metrics-collector
+ps aux | grep tidewatch
 # Verify <5% CPU, <150MB RAM
 
 # 8. 30-minute soak test
@@ -2808,7 +2808,7 @@ ps aux | grep metrics-collector
 # Verify skew_ms is reasonable (<1000ms typically)
 
 # 10. WAL size check
-ls -lh /var/lib/belabox-metrics/metrics.db-wal
+ls -lh /var/lib/tidewatch/metrics.db-wal
 # Should stay <64 MB due to checkpoints
 ```
 
@@ -3101,7 +3101,7 @@ sum(rate(collector.metrics_collected_total{device_id="belabox-001"}[1m])) * 60
 
 **Check:**
 1. Checkpoint routine running: Check logs for "WAL checkpoint"
-2. WAL size: `ls -lh /var/lib/belabox-metrics/metrics.db-wal`
+2. WAL size: `ls -lh /var/lib/tidewatch/metrics.db-wal`
 3. Checkpoint config: `wal_checkpoint_interval` and `wal_checkpoint_size_mb`
 
 **Solution:**
@@ -3118,7 +3118,7 @@ sum(rate(collector.metrics_collected_total{device_id="belabox-001"}[1m])) * 60
 **Debug:**
 ```bash
 # Check CPU collector logs
-journalctl -u metrics-collector | grep "cpu.usage"
+journalctl -u tidewatch | grep "cpu.usage"
 
 # Verify counter values aren't wrapping
 cat /proc/stat | grep "^cpu "
@@ -3709,7 +3709,7 @@ func calculateHealthStatus(state State, cfg Config) HealthStatus {
 
 **Verification Needed:**
 - Confirm `/proc/{pid}/stat` reads work with `ProtectProc=` (you didn't set it, which is fine)
-- Confirm token file (`/etc/metrics-collector/token`) is readable under `ReadOnlyPaths`
+- Confirm token file (`/etc/tidewatch/token`) is readable under `ReadOnlyPaths`
 - Token file must be `chmod 0600`, owned by `metrics` user
 
 **Pre-Deployment Checklist:**
@@ -3718,14 +3718,14 @@ func calculateHealthStatus(state State, cfg Config) HealthStatus {
 sudo useradd -r -s /bin/false metrics
 
 # Set token permissions
-sudo install -m 0600 -o metrics -g metrics token /etc/metrics-collector/token
+sudo install -m 0600 -o metrics -g metrics token /etc/tidewatch/token
 
 # Test service can start
-sudo systemctl start metrics-collector
-sudo systemctl status metrics-collector
+sudo systemctl start tidewatch
+sudo systemctl status tidewatch
 
 # Verify no permission errors
-sudo journalctl -u metrics-collector | grep -i "permission denied"
+sudo journalctl -u tidewatch | grep -i "permission denied"
 ```
 
 ---
@@ -3755,7 +3755,7 @@ func acquireLock(path string) (*os.File, error) {
 }
 
 // In main()
-lockFile, err := acquireLock("/var/run/metrics-collector.lock")
+lockFile, err := acquireLock("/var/run/tidewatch.lock")
 if err != nil {
     log.Fatal("Failed to acquire lock", "error", err)
 }

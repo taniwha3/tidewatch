@@ -8,7 +8,7 @@ Wants=network-online.target
 Type=simple
 User=metrics
 Group=metrics
-ExecStart=/usr/local/bin/metrics-collector -config /etc/belabox-metrics/config.yaml
+ExecStart=/usr/local/bin/tidewatch -config /etc/tidewatch/config.yaml
 
 # Restart policy
 Restart=always
@@ -24,7 +24,7 @@ CPUQuota=20%
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=metrics-collector
+SyslogIdentifier=tidewatch
 
 # Security hardening - Privilege restrictions
 NoNewPrivileges=true
@@ -33,8 +33,8 @@ PrivateTmp=true
 # Security hardening - Filesystem access
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/belabox-metrics
-ReadOnlyPaths=/etc/belabox-metrics
+ReadWritePaths=/var/lib/tidewatch
+ReadOnlyPaths=/etc/tidewatch
 
 # Security hardening - Kernel features
 ProtectKernelTunables=true

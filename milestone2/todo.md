@@ -419,7 +419,7 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 ## Security & Operations
 
 ### Security Hardening ✅ COMPLETE (code ready, needs deployment)
-- ✅ Update systemd/metrics-collector.service with comprehensive security hardening
+- ✅ Update systemd/tidewatch.service with comprehensive security hardening
 - ✅ Set User=metrics, Group=metrics
 - ✅ Add NoNewPrivileges=true
 - ✅ Add ProtectSystem=strict, ProtectHome=true
@@ -427,14 +427,14 @@ This comprehensive checklist covers all tasks required to complete Milestone 2.
 - ✅ Add resource limits: MemoryMax=200M, CPUQuota=20%
 - ✅ Add RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 - ✅ Add RestrictNamespaces=true
-- ✅ Add ReadWritePaths=/var/lib/belabox-metrics
-- ✅ Add ReadOnlyPaths=/etc/belabox-metrics
+- ✅ Add ReadWritePaths=/var/lib/tidewatch
+- ✅ Add ReadOnlyPaths=/etc/tidewatch
 - ✅ Add kernel protections: ProtectKernelTunables, ProtectKernelModules, ProtectKernelLogs
 - ✅ Add SystemCallFilter restrictions
 - ✅ Create docs/deployment.md with deployment instructions
 - [ ] **TODO (deployment)**: Create `metrics` user and group on target system
-- [ ] **TODO (deployment)**: Set directory permissions: `chown -R metrics:metrics /var/lib/belabox-metrics`
-- [ ] **TODO (deployment)**: Set token file permissions: `chmod 600 /etc/belabox-metrics/api-token`
+- [ ] **TODO (deployment)**: Set directory permissions: `chown -R metrics:metrics /var/lib/tidewatch`
+- [ ] **TODO (deployment)**: Set token file permissions: `chmod 600 /etc/tidewatch/api-token`
 
 ### Systemd Integration ✅ COMPLETE (code ready, integration deferred to M3)
 - ✅ Implement `internal/watchdog` package with coreos/go-systemd

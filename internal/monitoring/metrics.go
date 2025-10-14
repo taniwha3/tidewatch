@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/taniwha3/thugshells/internal/models"
+	"github.com/taniwha3/tidewatch/internal/models"
 )
 
 // MetricsCollector manages meta-monitoring metrics about the collector itself

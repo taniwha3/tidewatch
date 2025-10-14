@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/taniwha3/thugshells/internal/models"
+	"github.com/taniwha3/tidewatch/internal/models"
 )
 
 // CPUStats represents CPU time counters from /proc/stat (Linux-specific)

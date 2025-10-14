@@ -12,17 +12,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/taniwha3/thugshells/internal/collector"
-	"github.com/taniwha3/thugshells/internal/config"
-	"github.com/taniwha3/thugshells/internal/health"
-	"github.com/taniwha3/thugshells/internal/logging"
-	"github.com/taniwha3/thugshells/internal/monitoring"
-	"github.com/taniwha3/thugshells/internal/storage"
-	"github.com/taniwha3/thugshells/internal/uploader"
+	"github.com/taniwha3/tidewatch/internal/collector"
+	"github.com/taniwha3/tidewatch/internal/config"
+	"github.com/taniwha3/tidewatch/internal/health"
+	"github.com/taniwha3/tidewatch/internal/logging"
+	"github.com/taniwha3/tidewatch/internal/monitoring"
+	"github.com/taniwha3/tidewatch/internal/storage"
+	"github.com/taniwha3/tidewatch/internal/uploader"
 )
 
 var (
-	configPath = flag.String("config", "/etc/belabox-metrics/config.yaml", "Path to config file")
+	configPath = flag.String("config", "/etc/tidewatch/config.yaml", "Path to config file")
 	version    = flag.Bool("version", false, "Print version and exit")
 )
 
@@ -32,7 +32,7 @@ func main() {
 	flag.Parse()
 
 	if *version {
-		fmt.Printf("thugshells-metrics-collector %s\n", appVersion)
+		fmt.Printf("tidewatch %s\n", appVersion)
 		os.Exit(0)
 	}
 

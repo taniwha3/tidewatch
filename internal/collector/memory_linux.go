@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/taniwha3/thugshells/internal/models"
+	"github.com/taniwha3/tidewatch/internal/models"
 )
 
 // collect implements Linux-specific memory collection using /proc/meminfo

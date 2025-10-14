@@ -1717,7 +1717,7 @@ CMD ["./metrics-receiver"]
 
 ### Updated Systemd Service (Security Hardening)
 
-**File:** `systemd/metrics-collector.service`
+**File:** `systemd/tidewatch.service`
 
 ```ini
 [Unit]
@@ -1730,7 +1730,7 @@ Wants=network-online.target
 Type=simple
 User=metrics
 Group=metrics
-ExecStart=/usr/local/bin/metrics-collector -config /etc/belabox-metrics/config.yaml
+ExecStart=/usr/local/bin/tidewatch -config /etc/tidewatch/config.yaml
 
 # Restart policy
 Restart=always
@@ -1767,15 +1767,15 @@ AmbientCapabilities=
 
 # Read-write paths
 # ProtectSystem=strict makes / read-only; explicitly allow our data/config paths
-ReadWritePaths=/var/lib/belabox-metrics
-ReadOnlyPaths=/etc/belabox-metrics
+ReadWritePaths=/var/lib/tidewatch
+ReadOnlyPaths=/etc/tidewatch
 # Collectors need read access to /proc and /sys for system metrics
 # These are allowed by default with ProtectSystem=strict (doesn't block /proc//sys)
 
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=metrics-collector
+SyslogIdentifier=tidewatch
 
 # Watchdog (restart if unhealthy for 60s)
 WatchdogSec=60s
@@ -1786,8 +1786,8 @@ WantedBy=multi-user.target
 
 **Installation notes:**
 - Create `metrics` user/group: `sudo useradd -r -s /bin/false metrics`
-- Set permissions: `sudo chown -R metrics:metrics /var/lib/belabox-metrics`
-- Token file: `sudo chmod 600 /etc/belabox-metrics/api-token`
+- Set permissions: `sudo chown -R metrics:metrics /var/lib/tidewatch`
+- Token file: `sudo chmod 600 /etc/tidewatch/api-token`
 
 ### Configuration
 
@@ -1798,7 +1798,7 @@ device:
   id: belabox-001
 
 storage:
-  path: /var/lib/belabox-metrics/metrics.db
+  path: /var/lib/tidewatch/metrics.db
   wal_checkpoint_interval: 1h
   wal_checkpoint_size_mb: 64
 

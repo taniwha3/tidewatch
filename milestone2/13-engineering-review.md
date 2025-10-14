@@ -482,7 +482,7 @@ func calculateHealthStatus(state State, cfg Config) HealthStatus {
 
 **Verification Needed:**
 - Confirm `/proc/{pid}/stat` reads work with `ProtectProc=` (you didn't set it, which is fine)
-- Confirm token file (`/etc/metrics-collector/token`) is readable under `ReadOnlyPaths`
+- Confirm token file (`/etc/tidewatch/token`) is readable under `ReadOnlyPaths`
 - Token file must be `chmod 0600`, owned by `metrics` user
 
 **Pre-Deployment Checklist:**
@@ -491,14 +491,14 @@ func calculateHealthStatus(state State, cfg Config) HealthStatus {
 sudo useradd -r -s /bin/false metrics
 
 # Set token permissions
-sudo install -m 0600 -o metrics -g metrics token /etc/metrics-collector/token
+sudo install -m 0600 -o metrics -g metrics token /etc/tidewatch/token
 
 # Test service can start
-sudo systemctl start metrics-collector
-sudo systemctl status metrics-collector
+sudo systemctl start tidewatch
+sudo systemctl status tidewatch
 
 # Verify no permission errors
-sudo journalctl -u metrics-collector | grep -i "permission denied"
+sudo journalctl -u tidewatch | grep -i "permission denied"
 ```
 
 ---
@@ -528,7 +528,7 @@ func acquireLock(path string) (*os.File, error) {
 }
 
 // In main()
-lockFile, err := acquireLock("/var/run/metrics-collector.lock")
+lockFile, err := acquireLock("/var/run/tidewatch.lock")
 if err != nil {
     log.Fatal("Failed to acquire lock", "error", err)
 }

@@ -39,7 +39,7 @@ func main() {
 	flag.Parse()
 
 	if *version {
-		fmt.Printf("thugshells-metrics-receiver %s\n", appVersion)
+		fmt.Printf("tidewatch-metrics-receiver %s\n", appVersion)
 		return
 	}
 

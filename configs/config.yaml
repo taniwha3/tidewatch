@@ -2,7 +2,7 @@ device:
   id: belabox-001
 
 storage:
-  path: /var/lib/belabox-metrics/metrics.db
+  path: /var/lib/tidewatch/metrics.db
   wal_checkpoint_interval: 1h        # How often to checkpoint WAL
   wal_checkpoint_size_mb: 64         # Checkpoint when WAL exceeds this size
 

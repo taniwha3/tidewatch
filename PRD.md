@@ -293,7 +293,7 @@ Metrics that trigger immediate upload (P0):
 ### Component Architecture
 
 ```
-metrics-collector (single Go binary)
+tidewatch (single Go binary)
 │
 ├── Collectors (goroutines, configurable intervals)
 │   ├── SystemCollector (30s) → CPU, RAM, disk, temp
@@ -413,9 +413,9 @@ After network recovery:
 ### Project Structure
 
 ```
-thugshells/
+tidewatch/
 ├── cmd/
-│   └── metrics-collector/
+│   └── tidewatch/
 │       └── main.go                 # Entry point
 ├── internal/
 │   ├── collector/
@@ -442,7 +442,7 @@ thugshells/
 │   ├── install.sh                  # Install systemd service
 │   └── deploy.sh                   # Deploy to Orange Pi
 ├── systemd/
-│   └── metrics-collector.service   # Systemd unit file
+│   └── tidewatch.service   # Systemd unit file
 ├── docs/
 │   └── belabox-integration.md      # Belabox integration findings
 ├── go.mod
@@ -458,7 +458,7 @@ thugshells/
 
 **Tasks:**
 1. Initialize Go project
-   - `go mod init github.com/taniwha3/thugshells`
+   - `go mod init github.com/taniwha3/tidewatch`
    - Set up directory structure
    - Create interfaces
 
@@ -598,7 +598,7 @@ thugshells/
 
 ## Configuration
 
-### Config File: `/etc/belabox-metrics/config.yaml`
+### Config File: `/etc/tidewatch/config.yaml`
 
 ```yaml
 collection:
@@ -621,7 +621,7 @@ collection:
 
 storage:
   type: sqlite
-  path: /var/lib/belabox-metrics/active/metrics.db
+  path: /var/lib/tidewatch/active/metrics.db
   retention:
     full_resolution: 48h
     aggregated_1m: 7d
@@ -632,7 +632,7 @@ storage:
   compression: gzip
 
 buffer:
-  path: /var/lib/belabox-metrics/buffer
+  path: /var/lib/tidewatch/buffer
   max_size: 5GB
   prune_strategy: oldest_first
 
@@ -641,7 +641,7 @@ remote:
   url: https://metrics.example.com/api/v1
   auth:
     type: bearer_token
-    token_file: /etc/belabox-metrics/api-token
+    token_file: /etc/tidewatch/api-token
   upload:
     mode: auto  # realtime, degraded, offline, or auto
     batch_size: 100
@@ -672,7 +672,7 @@ logging:
 ### Storage Layout
 
 ```
-/var/lib/belabox-metrics/
+/var/lib/tidewatch/
 ├── active/
 │   ├── metrics.db              # Current SQLite database
 │   ├── metrics.db-wal          # Write-ahead log
@@ -799,7 +799,7 @@ Response 200 OK:
 **System Requirements:**
 - Linux kernel 3.10+ (for /proc, /sys access)
 - Systemd (for service management)
-- Write access to `/var/lib/belabox-metrics`
+- Write access to `/var/lib/tidewatch`
 - Network connectivity for remote upload
 
 ---
@@ -852,7 +852,7 @@ func TestSystemCollector_CollectCPU(t *testing.T) {
 
 ```bash
 # Cross-compile for ARM64
-GOOS=linux GOARCH=arm64 go build -o metrics-collector cmd/metrics-collector/main.go
+GOOS=linux GOARCH=arm64 go build -o tidewatch cmd/tidewatch/main.go
 
 # Or use build script
 ./scripts/build.sh
@@ -862,20 +862,20 @@ GOOS=linux GOARCH=arm64 go build -o metrics-collector cmd/metrics-collector/main
 
 ```bash
 # Copy binary
-sudo cp metrics-collector /usr/local/bin/
+sudo cp tidewatch /usr/local/bin/
 
 # Create directories
-sudo mkdir -p /var/lib/belabox-metrics/{active,buffer,archive}
-sudo mkdir -p /etc/belabox-metrics
+sudo mkdir -p /var/lib/tidewatch/{active,buffer,archive}
+sudo mkdir -p /etc/tidewatch
 
 # Copy config
-sudo cp configs/config.yaml /etc/belabox-metrics/config.yaml
+sudo cp configs/config.yaml /etc/tidewatch/config.yaml
 
 # Create systemd service
-sudo cp systemd/metrics-collector.service /etc/systemd/system/
+sudo cp systemd/tidewatch.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable metrics-collector
-sudo systemctl start metrics-collector
+sudo systemctl enable tidewatch
+sudo systemctl start tidewatch
 ```
 
 ### Systemd Service
@@ -888,7 +888,7 @@ After=network.target
 [Service]
 Type=simple
 User=belabox
-ExecStart=/usr/local/bin/metrics-collector -config /etc/belabox-metrics/config.yaml
+ExecStart=/usr/local/bin/tidewatch -config /etc/tidewatch/config.yaml
 Restart=always
 RestartSec=10s
 
@@ -900,16 +900,16 @@ WantedBy=multi-user.target
 
 ```bash
 # Check status
-systemctl status metrics-collector
+systemctl status tidewatch
 
 # View logs
-journalctl -u metrics-collector -f
+journalctl -u tidewatch -f
 
 # Health check
 curl http://localhost:9100/health
 
 # Check metrics database
-sqlite3 /var/lib/belabox-metrics/active/metrics.db "SELECT COUNT(*) FROM metrics"
+sqlite3 /var/lib/tidewatch/active/metrics.db "SELECT COUNT(*) FROM metrics"
 ```
 
 ---
@@ -948,7 +948,7 @@ sqlite3 /var/lib/belabox-metrics/active/metrics.db "SELECT COUNT(*) FROM metrics
 
 ### Milestone 1 Issues (To be addressed in Milestone 2)
 
-#### [P1] Duplicate Metric Uploads — `cmd/metrics-collector/main.go:229-253`
+#### [P1] Duplicate Metric Uploads — `cmd/tidewatch/main.go:229-253`
 
 **Problem:** The upload loop queries all metrics from the last 5 minutes and uploads them on every cycle without tracking which metrics have been successfully uploaded. This causes:
 - Same metrics re-uploaded multiple times until they age out of the 5-minute window

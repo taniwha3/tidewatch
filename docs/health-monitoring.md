@@ -296,10 +296,10 @@ monitoring:
    - Combined: upload stalled >10min with high pending count
 
 3. **Immediate actions:**
-   - Check logs: `journalctl -u metrics-collector -n 100`
-   - Verify disk space: `df -h /var/lib/belabox-metrics`
+   - Check logs: `journalctl -u tidewatch -n 100`
+   - Verify disk space: `df -h /var/lib/tidewatch`
    - Test network: `curl http://localhost:8428/health`
-   - Check permissions: `ls -la /var/lib/belabox-metrics`
+   - Check permissions: `ls -la /var/lib/tidewatch`
 
 ### Clock Skew Warnings
 

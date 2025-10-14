@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taniwha3/thugshells/internal/models"
+	"github.com/taniwha3/tidewatch/internal/models"
 )
 
 func TestStartWALCheckpointRoutine_PeriodicCheckpoint(t *testing.T) {

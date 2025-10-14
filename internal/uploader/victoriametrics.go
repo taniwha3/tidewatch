@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/taniwha3/thugshells/internal/models"
+	"github.com/taniwha3/tidewatch/internal/models"
 )
 
 // VictoriaMetrics JSONL format implementation

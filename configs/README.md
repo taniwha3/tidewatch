@@ -3,10 +3,10 @@
 ## Production Configuration
 
 **`config.yaml`** - Production configuration for systemd deployments
-- Uses absolute path: `/var/lib/belabox-metrics/metrics.db`
+- Uses absolute path: `/var/lib/tidewatch/metrics.db`
 - Standard intervals (30s for most metrics)
 - Info-level logging
-- Requires proper permissions on `/var/lib/belabox-metrics/`
+- Requires proper permissions on `/var/lib/tidewatch/`
 
 ## Development Configuration
 
@@ -21,10 +21,10 @@
 
 ```bash
 # Run with development config
-./bin/metrics-collector-darwin -config configs/config.dev.yaml
+./bin/tidewatch-darwin -config configs/config.dev.yaml
 
 # Or with production config
-./bin/metrics-collector-darwin -config configs/config.yaml
+./bin/tidewatch-darwin -config configs/config.yaml
 ```
 
 ### Development Tips
@@ -39,9 +39,9 @@
 For production deployments, create the storage directory with proper permissions:
 
 ```bash
-sudo mkdir -p /var/lib/belabox-metrics
-sudo chown belabox:belabox /var/lib/belabox-metrics
-sudo chmod 755 /var/lib/belabox-metrics
+sudo mkdir -p /var/lib/tidewatch
+sudo chown belabox:belabox /var/lib/tidewatch
+sudo chmod 755 /var/lib/tidewatch
 ```
 
 The collector will auto-create subdirectories if they don't exist (assuming parent directory permissions allow it).

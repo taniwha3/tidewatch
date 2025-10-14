@@ -16,7 +16,7 @@ services:
   # VictoriaMetrics single-node instance
   victoria:
     image: victoriametrics/victoria-metrics:v1.97.1  # Pinned version per M2 spec
-    container_name: thugshells-victoria
+    container_name: tidewatch-victoria
     ports:
       - "8428:8428"  # HTTP API and UI
     volumes:
@@ -42,7 +42,7 @@ services:
   # Grafana for visualization (optional)
   grafana:
     image: grafana/grafana:latest
-    container_name: thugshells-grafana
+    container_name: tidewatch-grafana
     ports:
       - "3000:3000"  # Grafana UI
     volumes:
@@ -64,10 +64,10 @@ services:
 
 volumes:
   victoria-data:
-    name: thugshells-victoria-data
+    name: tidewatch-victoria-data
   grafana-data:
-    name: thugshells-grafana-data
+    name: tidewatch-grafana-data
 
 networks:
   default:
-    name: thugshells-metrics
+    name: tidewatch-metrics

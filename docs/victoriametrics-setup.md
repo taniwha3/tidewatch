@@ -1,6 +1,6 @@
 # VictoriaMetrics Setup Guide
 
-This guide covers setting up VictoriaMetrics to receive and store metrics from the thugshells metrics collector.
+This guide covers setting up VictoriaMetrics to receive and store metrics from the tidewatch metrics collector.
 
 ## Quick Start with Docker Compose
 
@@ -294,7 +294,7 @@ Copy snapshot to backup location:
 
 ```bash
 docker compose exec victoria tar czf /tmp/backup.tar.gz /victoria-metrics-data/snapshots/20251012-150530-1A2B3C4D
-docker cp thugshells-victoria:/tmp/backup.tar.gz ./backup-$(date +%Y%m%d).tar.gz
+docker cp tidewatch-victoria:/tmp/backup.tar.gz ./backup-$(date +%Y%m%d).tar.gz
 ```
 
 ### Restore
@@ -376,7 +376,7 @@ See: https://docs.victoriametrics.com/Cluster-VictoriaMetrics.html
 
 3. **Check metrics collector logs:**
    ```bash
-   journalctl -u metrics-collector -n 100
+   journalctl -u tidewatch -n 100
    ```
 
 4. **Test manual insert:**

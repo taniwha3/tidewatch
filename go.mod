@@ -1,4 +1,4 @@
-module github.com/taniwha3/thugshells
+module github.com/taniwha3/tidewatch
 
 go 1.24.0
 

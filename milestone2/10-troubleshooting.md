@@ -16,7 +16,7 @@
 
 **Check:**
 1. Checkpoint routine running: Check logs for "WAL checkpoint"
-2. WAL size: `ls -lh /var/lib/belabox-metrics/metrics.db-wal`
+2. WAL size: `ls -lh /var/lib/tidewatch/metrics.db-wal`
 3. Checkpoint config: `wal_checkpoint_interval` and `wal_checkpoint_size_mb`
 
 **Solution:**
@@ -33,7 +33,7 @@
 **Debug:**
 ```bash
 # Check CPU collector logs
-journalctl -u metrics-collector | grep "cpu.usage"
+journalctl -u tidewatch | grep "cpu.usage"
 
 # Verify counter values aren't wrapping
 cat /proc/stat | grep "^cpu "

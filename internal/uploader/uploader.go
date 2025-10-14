@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/taniwha3/thugshells/internal/models"
+	"github.com/taniwha3/tidewatch/internal/models"
 )
 
 // Uploader is the interface for uploading metrics to remote endpoints
@@ -215,7 +215,7 @@ func (u *HTTPUploader) uploadChunk(ctx context.Context, chunk *Chunk, chunkIndex
 	// Set required headers per engineering review
 	req.Header.Set("Content-Type", "application/x-ndjson") // JSONL / newline-delimited JSON
 	req.Header.Set("Content-Encoding", "gzip")
-	req.Header.Set("User-Agent", "thugshells/1.0")
+	req.Header.Set("User-Agent", "tidewatch/1.0")
 	req.Header.Set("X-Device-ID", u.deviceID)
 
 	// Add authorization if configured

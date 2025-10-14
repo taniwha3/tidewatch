@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-BINARY=${1:-bin/metrics-collector-linux-arm64}
-SERVICE_NAME=metrics-collector
-CONFIG_DIR=/etc/belabox-metrics
-DATA_DIR=/var/lib/belabox-metrics
+BINARY=${1:-bin/tidewatch-linux-arm64}
+SERVICE_NAME=tidewatch
+CONFIG_DIR=/etc/tidewatch
+DATA_DIR=/var/lib/tidewatch
 
 echo "==> Installing thugshells metrics collector"
 
@@ -21,8 +21,8 @@ systemctl disable $SERVICE_NAME 2>/dev/null || true
 
 # Install binary
 echo "Installing binary..."
-cp $BINARY /usr/local/bin/metrics-collector
-chmod +x /usr/local/bin/metrics-collector
+cp $BINARY /usr/local/bin/tidewatch
+chmod +x /usr/local/bin/tidewatch
 
 # Create directories
 echo "Creating directories..."
@@ -41,7 +41,7 @@ fi
 
 # Install systemd service
 echo "Installing systemd service..."
-cp systemd/metrics-collector.service /etc/systemd/system/
+cp systemd/tidewatch.service /etc/systemd/system/
 systemctl daemon-reload
 
 # Enable and start service
