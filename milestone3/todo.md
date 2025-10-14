@@ -101,42 +101,44 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 
 ---
 
-## Phase 3: Watchdog & Process Locking Integration (NOT STARTED)
-
-⚠️ **BLOCKER**: `cmd/tidewatch/main.go` currently does NOT integrate watchdog or lockfile packages.
-The systemd service expects `Type=notify` but main.go doesn't send systemd notifications yet.
+## Phase 3: Watchdog & Process Locking Integration ✅ COMPLETED
 
 ### Watchdog Integration
 - [x] Review `internal/watchdog/watchdog.go` implementation (exists from M2)
-- [ ] Integrate watchdog in `cmd/tidewatch/main.go`:
-  - [ ] Import `github.com/taniwha3/tidewatch/internal/watchdog`
-  - [ ] Initialize watchdog with `watchdog.NewPinger(logger)`
-  - [ ] Check `wd.IsEnabled()` and start goroutine if true
-  - [ ] Call `wd.NotifyReady()` after initialization
-  - [ ] Start `wd.Start(ctx)` goroutine for periodic pings
-  - [ ] Call `wd.NotifyStopping()` on shutdown
-  - [ ] Handle watchdog errors
-- [ ] Test watchdog with systemd in Docker
-- [ ] Verify automatic restart on hang/crash
-- [ ] Document watchdog configuration
+- [x] Integrate watchdog in `cmd/tidewatch/main.go`:
+  - [x] Import `github.com/taniwha3/tidewatch/internal/watchdog`
+  - [x] Initialize watchdog with `watchdog.NewPinger(logger)`
+  - [x] Check `wd.IsEnabled()` and start goroutine if true
+  - [x] Always send READY/STOPPING via `daemon.SdNotify` when running under systemd
+  - [x] Only start periodic watchdog pings if `wd.IsEnabled()` is true
+  - [x] Start `wd.Start(ctx)` goroutine for periodic pings (when enabled)
+  - [x] Handle notification errors with proper logging
+- [x] Update systemd service file to `Type=notify`
+- [x] Enable `WatchdogSec=60s` in service file
+- [x] Separate Type=notify support from watchdog enablement (critical fix)
+- [ ] Test watchdog with systemd in Docker (pending Phase 4)
+- [ ] Verify automatic restart on hang/crash (pending Phase 4)
+- [ ] Document watchdog configuration (pending Phase 5)
 
 ### Process Locking
 - [x] Review `internal/lockfile/lockfile.go` implementation (exists from M2)
-- [ ] Integrate lockfile in `cmd/tidewatch/main.go`:
-  - [ ] Import `github.com/taniwha3/tidewatch/internal/lockfile`
-  - [ ] Acquire lock at startup (`/var/lib/tidewatch/tidewatch.lock`)
-  - [ ] Handle lock acquisition failure (exit with error)
-  - [ ] Release lock on clean shutdown (defer lock.Release())
-  - [ ] Stale lock cleanup already handled by postinst script
-- [ ] Test double-start prevention
-- [ ] Verify lock cleanup on crash
-- [ ] Document locking behavior
+- [x] Integrate lockfile in `cmd/tidewatch/main.go`:
+  - [x] Import `github.com/taniwha3/tidewatch/internal/lockfile`
+  - [x] Acquire lock at startup (`/var/lib/tidewatch/tidewatch.lock`)
+  - [x] Handle lock acquisition failure (exit with error)
+  - [x] Release lock on clean shutdown (defer lock.Release())
+  - [x] Stale lock cleanup already handled by postinst script
+- [ ] Test double-start prevention (pending Phase 4)
+- [ ] Verify lock cleanup on crash (pending Phase 4)
+- [ ] Document locking behavior (pending Phase 5)
 
 ### Configuration Updates
-- [ ] Add watchdog config section to YAML (or document it's auto-detected from systemd)
-- [ ] Add lockfile path to config (or use hardcoded `/var/lib/tidewatch/tidewatch.lock`)
-- [ ] Update example configs with watchdog settings (if needed)
-- [ ] Document interaction between watchdog and locking
+- [x] Watchdog auto-detects from systemd environment (no config needed)
+- [x] Lockfile path derived from `storage.path` config (e.g., `/var/lib/tidewatch/metrics.db.lock`)
+- [x] Lock path respects custom storage locations (dev and production)
+- [x] Lock path normalized for SQLite URIs (handles `file:...` format with query params)
+- [x] All URI formats produce absolute lock paths (prevents working-directory issues)
+- [x] Code compiles and binary runs successfully
 
 ---
 
@@ -316,12 +318,12 @@ The systemd service expects `Type=notify` but main.go doesn't send systemd notif
 ## Progress Summary
 
 **Total Tasks:** ~150 (approximate)
-**Completed:** ~40 (Phase 1 complete, Phase 2 partial)
-**In Progress:** Phase 3 (Watchdog & Lockfile Integration)
-**Remaining:** ~110
+**Completed:** ~55 (Phase 1, 2 partial, Phase 3 complete)
+**In Progress:** Phase 4 (Testing Infrastructure)
+**Remaining:** ~95
 
-**Current Phase:** Phase 3 - Watchdog & Process Locking Integration
-**Status:** Phase 1 ✅ Complete | Phase 2 Partial | Phase 3 Ready to Start
+**Current Phase:** Phase 4 - Testing Infrastructure
+**Status:** Phase 1 ✅ Complete | Phase 2 ✅ Partial | Phase 3 ✅ Complete
 
 ### What's Done:
 - ✅ Complete Debian package infrastructure (debian/ directory)
@@ -329,12 +331,18 @@ The systemd service expects `Type=notify` but main.go doesn't send systemd notif
 - ✅ Build automation script (scripts/build-deb.sh)
 - ✅ Production configuration template
 - ✅ Maintainer scripts (postinst, prerm, postrm)
-- ✅ Systemd service file with security hardening
+- ✅ Systemd service file with security hardening and watchdog enabled
 - ✅ Package documentation (README.Debian, changelog)
+- ✅ **Watchdog integration in cmd/tidewatch/main.go**
+- ✅ **Process locking integration in cmd/tidewatch/main.go**
+- ✅ **Systemd Type=notify and WatchdogSec=60s configured**
+- ✅ **Type=notify READY/STOPPING always sent when under systemd (not just when watchdog enabled)**
+- ✅ **Lock path derived from storage.path config (respects custom locations)**
+- ✅ **Lock path normalized for SQLite URIs (handles file:... with query params, prevents cwd issues)**
 
 ### Next Steps:
-1. **CRITICAL**: Integrate watchdog and lockfile in cmd/tidewatch/main.go
-2. Create GitHub Actions workflow for automated builds
-3. Set up Docker test infrastructure
-4. Run integration tests for install/upgrade/remove scenarios
-5. Complete remaining documentation
+1. Create GitHub Actions workflow for automated builds (Phase 2 completion)
+2. Set up Docker test infrastructure (Phase 4)
+3. Run integration tests for install/upgrade/remove scenarios (Phase 4)
+4. Test watchdog functionality and double-start prevention (Phase 4)
+5. Complete documentation (Phase 5)

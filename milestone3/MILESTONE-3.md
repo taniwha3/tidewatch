@@ -76,8 +76,8 @@ tidewatch-doc (optional)
 User/Group: tidewatch (system account, no login)
 Service: tidewatch.service (enabled by default)
 Watchdog: 60s interval with systemd integration
-Process Lock: /var/lib/tidewatch/tidewatch.lock
-Database: /var/lib/tidewatch/metrics.db
+Process Lock: <storage.path>.lock (derived from config, e.g., /var/lib/tidewatch/metrics.db.lock)
+Database: /var/lib/tidewatch/metrics.db (production default)
 ```
 
 ## Implementation Plan
@@ -738,7 +738,8 @@ func main() {
 	slog.Info("Starting tidewatch", "version", version)
 
 	// Initialize process lock
-	lockPath := "/var/lib/tidewatch/tidewatch.lock"
+	// Derive lock path from configured storage path to respect custom locations
+	lockPath := lockfile.GetLockPath(cfg.Storage.Path)
 	lock, err := lockfile.Acquire(lockPath)
 	if err != nil {
 		slog.Error("Failed to acquire lock - another instance may be running",

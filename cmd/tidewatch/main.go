@@ -8,17 +8,22 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/coreos/go-systemd/v22/daemon"
 	"github.com/taniwha3/tidewatch/internal/collector"
 	"github.com/taniwha3/tidewatch/internal/config"
 	"github.com/taniwha3/tidewatch/internal/health"
+	"github.com/taniwha3/tidewatch/internal/lockfile"
 	"github.com/taniwha3/tidewatch/internal/logging"
 	"github.com/taniwha3/tidewatch/internal/monitoring"
 	"github.com/taniwha3/tidewatch/internal/storage"
 	"github.com/taniwha3/tidewatch/internal/uploader"
+	"github.com/taniwha3/tidewatch/internal/watchdog"
 )
 
 var (
@@ -73,6 +78,35 @@ func main() {
 		slog.String("log_level", string(logLevel)),
 		slog.String("log_format", string(logFormat)),
 	)
+
+	// Acquire process lock to prevent multiple instances
+	// Normalize storage path to handle SQLite DSN URIs (e.g., file:///path?params)
+	lockPath := lockfile.GetLockPath(normalizeStoragePath(cfg.Storage.Path))
+	lock, err := lockfile.Acquire(lockPath)
+	if err != nil {
+		logger.Error("Failed to acquire process lock - another instance may be running",
+			slog.Any("error", err),
+			slog.String("lock_path", lockPath),
+		)
+		os.Exit(1)
+	}
+	defer lock.Release()
+	logger.Info("Process lock acquired", slog.String("lock_path", lockPath))
+
+	// Initialize watchdog
+	wd := watchdog.NewPinger(logger)
+
+	// Create context for watchdog and other goroutines
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start watchdog ping routine in background (if watchdog is enabled)
+	// Note: This is separate from systemd Type=notify - we always send READY/STOPPING
+	// when running under systemd, but only send periodic watchdog pings if configured
+	if wd.IsEnabled() {
+		go wd.Start(ctx)
+		logger.Info("Watchdog pinger started", slog.Duration("interval", wd.GetInterval()))
+	}
 
 	// Initialize storage
 	store, err := storage.NewSQLiteStorage(cfg.Storage.Path)
@@ -223,10 +257,6 @@ func main() {
 	collectors := initializeCollectors(cfg, logger)
 	logger.Info("Collectors initialized", slog.Int("count", len(collectors)))
 
-	// Create context for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -310,11 +340,31 @@ func main() {
 		}()
 	}
 
+	// Notify systemd that service is ready (required for Type=notify)
+	// Always send READY when running under systemd, even if watchdog is disabled
+	if watchdog.IsRunningUnderSystemd() {
+		sent, err := daemon.SdNotify(false, daemon.SdNotifyReady)
+		if err != nil {
+			logger.Error("Failed to notify systemd ready", slog.Any("error", err))
+		} else if sent {
+			logger.Info("Notified systemd: service ready")
+		}
+	}
 	logger.Info("All collectors started. Press Ctrl+C to stop.")
 
 	// Wait for shutdown signal
 	<-sigChan
 	logger.Info("Shutdown signal received, stopping...")
+
+	// Notify systemd we're stopping (send even if watchdog is disabled)
+	if watchdog.IsRunningUnderSystemd() {
+		sent, err := daemon.SdNotify(false, daemon.SdNotifyStopping)
+		if err != nil {
+			logger.Error("Failed to notify systemd stopping", slog.Any("error", err))
+		} else if sent {
+			logger.Info("Notified systemd: service stopping")
+		}
+	}
 
 	// Cancel context to stop all goroutines
 	cancel()
@@ -801,4 +851,58 @@ func checkClockSkew(
 	}
 
 	logger.Debug("Clock skew check completed", slog.Int64("skew_ms", skewMs))
+}
+
+// normalizeStoragePath converts a storage path (including SQLite URIs) to an absolute file path
+// suitable for lock file generation. This handles SQLite DSN URIs like:
+//   - file:/var/lib/tidewatch/metrics.db?cache=shared
+//   - file:///var/lib/tidewatch/metrics.db
+//   - ./data/metrics.db
+//   - /var/lib/tidewatch/metrics.db
+func normalizeStoragePath(storagePath string) string {
+	// Handle SQLite URI format (file:...)
+	if strings.HasPrefix(storagePath, "file:") {
+		// Strip "file:" prefix
+		path := strings.TrimPrefix(storagePath, "file:")
+
+		// Strip any query parameters (everything after ?)
+		if idx := strings.Index(path, "?"); idx != -1 {
+			path = path[:idx]
+		}
+
+		// Handle SQLite URI formats:
+		// - file:///path (three slashes) -> /path
+		// - file://host/path (two slashes + host) -> skip for now, treat as //host/path
+		// - file:/path (one slash) -> /path
+		// - file:path (no slash) -> path (relative)
+		if strings.HasPrefix(path, "///") {
+			// file:///absolute/path -> /absolute/path
+			path = path[2:] // Remove two slashes, keep the third as leading /
+		} else if strings.HasPrefix(path, "//") {
+			// file://hostname/path - this is a network path, probably won't work for locking
+			// Just strip the // and hope for the best
+			path = path[2:]
+		}
+		// Now path is either /absolute or relative
+
+		// Make relative paths absolute
+		if !strings.HasPrefix(path, "/") {
+			absPath, err := filepath.Abs(path)
+			if err == nil {
+				return absPath
+			}
+		}
+
+		return path
+	}
+
+	// For non-URI paths, make them absolute if they're relative
+	if !strings.HasPrefix(storagePath, "/") {
+		absPath, err := filepath.Abs(storagePath)
+		if err == nil {
+			return absPath
+		}
+	}
+
+	return storagePath
 }
