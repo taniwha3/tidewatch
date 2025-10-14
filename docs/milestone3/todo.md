@@ -75,7 +75,7 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 ### GitHub Actions Workflow ✅
 - [x] Create `.github/workflows/build-deb.yml`
   - [x] Add Go 1.25 (latest stable) build step with cross-compilation
-  - [x] Add nfpm packaging step (inline config)
+  - [x] Add nfpm packaging step (reuses tracked nfpm.yaml)
   - [x] Configure arm64 architecture build
   - [x] Configure armhf architecture build
   - [x] Add smoke tests (install/remove verification)
@@ -87,6 +87,7 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
   - [x] Fix version detection for non-tag builds (workflow_dispatch, PRs)
   - [x] Fix artifact download paths for smoke tests
   - [x] Handle missing GPG signatures gracefully
+  - [x] Ensure consistency between CI and local builds (shared nfpm.yaml)
 - [x] Workflow triggers on git tags (v*) and manual dispatch
 - [x] QEMU emulation configured for ARM testing
 - [x] Compatible with go.mod requirements (Go 1.24.0+)
@@ -371,6 +372,8 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 - ✅ **Intelligent version detection for tags, PRs, and manual builds**
 - ✅ **Graceful handling of missing GPG secrets (placeholder files)**
 - ✅ **Fixed artifact paths for reliable smoke tests**
+- ✅ **Workflow reuses tracked nfpm.yaml for consistent packaging**
+- ✅ **All example configs included in packages (/usr/share/doc/tidewatch/examples/)**
 
 ### Next Steps:
 1. Complete user documentation (Phase 5)
