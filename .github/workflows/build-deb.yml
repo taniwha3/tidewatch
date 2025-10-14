@@ -1,0 +1,320 @@
+name: Build Debian Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }} package
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [arm64, armhf]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Get version
+        id: version
+        run: |
+          # Extract version from git tag if available, otherwise use git describe
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            # Tagged release: extract version from tag (e.g., refs/tags/v3.0.0 -> 3.0.0)
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            # Non-tag build (workflow_dispatch, PR): use git describe or fallback
+            VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-dev")
+            # Remove 'v' prefix if present
+            VERSION=${VERSION#v}
+            # Replace any invalid characters for Debian versioning
+            VERSION=$(echo "$VERSION" | sed 's/[^a-zA-Z0-9.+~-]/-/g')
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "debian_version=${VERSION}-1" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
+
+      - name: Build binary
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.arch == 'armhf' && 'arm' || matrix.arch }}
+          GOARM: ${{ matrix.arch == 'armhf' && '7' || '' }}
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags="-s -w -X main.version=${{ steps.version.outputs.version }}" \
+            -o tidewatch-${{ matrix.arch }} ./cmd/tidewatch
+
+      - name: Install nfpm
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | \
+            sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update
+          sudo apt-get install -y nfpm
+
+      - name: Prepare binary for packaging
+        run: |
+          # nfpm.yaml expects binary at ./bin/tidewatch
+          mkdir -p bin
+          mv tidewatch-${{ matrix.arch }} bin/tidewatch
+
+      - name: Build package
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Use existing nfpm.yaml with environment variable substitution
+          nfpm pkg --packager deb --target tidewatch_${{ steps.version.outputs.debian_version }}_${{ matrix.arch }}.deb
+
+      - name: Generate checksums
+        run: |
+          sha256sum tidewatch_${{ steps.version.outputs.debian_version }}_${{ matrix.arch }}.deb > \
+            tidewatch_${{ steps.version.outputs.debian_version }}_${{ matrix.arch }}.deb.sha256
+
+      - name: Sign package with GPG
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+            echo "$GPG_PASSPHRASE" | gpg --batch --passphrase-fd 0 --pinentry-mode loopback \
+              --output tidewatch_${{ steps.version.outputs.debian_version }}_${{ matrix.arch }}.deb.asc \
+              --detach-sign tidewatch_${{ steps.version.outputs.debian_version }}_${{ matrix.arch }}.deb
+            echo "Package signed with GPG"
+          else
+            echo "GPG_PRIVATE_KEY not set, skipping signing"
+            touch tidewatch_${{ steps.version.outputs.debian_version }}_${{ matrix.arch }}.deb.asc
+            echo "Created placeholder signature file"
+          fi
+
+      - name: Create placeholder signature for non-release builds
+        if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
+        run: |
+          touch tidewatch_${{ steps.version.outputs.debian_version }}_${{ matrix.arch }}.deb.asc
+          echo "Created placeholder signature file (unsigned build)"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.arch }}
+          path: |
+            tidewatch_${{ steps.version.outputs.debian_version }}_${{ matrix.arch }}.deb
+            tidewatch_${{ steps.version.outputs.debian_version }}_${{ matrix.arch }}.deb.sha256
+            tidewatch_${{ steps.version.outputs.debian_version }}_${{ matrix.arch }}.deb.asc
+
+  test:
+    name: Smoke test ${{ matrix.arch }} package
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [arm64, armhf]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: packages-${{ matrix.arch }}
+          path: .
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,arm
+
+      - name: Smoke test - package installation
+        run: |
+          # Basic smoke test without systemd (full integration tests use docker-compose)
+          PLATFORM=${{ matrix.arch == 'armhf' && 'linux/arm/v7' || 'linux/arm64' }}
+          docker run --platform $PLATFORM --rm -v $(pwd):/workspace \
+            debian:bookworm-slim /bin/bash -c "
+              cd /workspace
+              apt-get update
+              apt-get install -y ./tidewatch_*.deb || exit 1
+              # Verify binary installed and executable
+              test -x /usr/bin/tidewatch || exit 1
+              /usr/bin/tidewatch -version || exit 1
+              # Verify user created
+              id tidewatch || exit 1
+              # Verify systemctl present (service won't start without systemd as PID 1)
+              which systemctl || exit 1
+              echo 'Smoke test passed'
+            "
+
+      - name: Smoke test - package removal
+        run: |
+          PLATFORM=${{ matrix.arch == 'armhf' && 'linux/arm/v7' || 'linux/arm64' }}
+          docker run --platform $PLATFORM --rm -v $(pwd):/workspace \
+            debian:bookworm-slim /bin/bash -c "
+              cd /workspace
+              apt-get update
+              apt-get install -y ./tidewatch_*.deb || exit 1
+              apt-get remove -y tidewatch || exit 1
+              # Verify binary removed
+              test ! -x /usr/bin/tidewatch || exit 1
+              # Config should still exist after remove
+              test -d /etc/tidewatch || exit 1
+              # Now purge
+              apt-get purge -y tidewatch || exit 1
+              # Config should be gone after purge
+              test ! -d /etc/tidewatch || exit 1
+              echo 'Removal test passed'
+            "
+
+  integration-test:
+    name: Integration test ${{ matrix.arch }} package
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [arm64, armhf]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: packages-${{ matrix.arch }}
+          path: ./packages
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,arm
+
+      - name: Create test directory structure
+        run: |
+          # GitHub Actions downloads artifacts to ./packages (root level)
+          # We copy them into tests/packages/ for docker-compose
+          mkdir -p tests/packages
+          cp packages/*.deb tests/packages/
+
+      - name: Run integration tests with systemd
+        run: |
+          cd tests
+          ARCH=${{ matrix.arch }}
+
+          # NOTE: docker-compose.yml mounts ./packages (relative to tests/)
+          # which correctly maps to tests/packages/ where .deb files are located
+          # Start systemd-enabled container with VictoriaMetrics
+          docker-compose up -d victoriametrics
+          docker-compose up -d tidewatch-${ARCH}
+
+          # Wait for containers to be ready
+          sleep 10
+
+          # Run installation test (must pass or workflow fails)
+          echo "Running installation test..."
+          docker-compose exec -T tidewatch-${ARCH} /tests/test-install.sh
+
+          # Run functional test (must pass or workflow fails)
+          echo "Running functional test..."
+          docker-compose exec -T tidewatch-${ARCH} /tests/test-functional.sh
+
+          # Cleanup (always run, even if tests fail)
+          echo "Cleaning up containers..."
+          docker-compose down -v || true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.arch }}
+          path: tests/*.log
+
+  release:
+    name: Create GitHub Release
+    needs: [test, integration-test]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Export GPG public key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+            gpg --armor --export > tidewatch-signing-key.asc
+          else
+            echo "GPG_PRIVATE_KEY not set, skipping public key export"
+            touch tidewatch-signing-key.asc
+          fi
+
+      - name: Create release notes
+        run: |
+          cat > RELEASE_NOTES.md <<EOF
+          # Tidewatch ${GITHUB_REF#refs/tags/v}
+
+          ## Installation
+
+          \`\`\`bash
+          # Download package for your architecture
+          wget https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF#refs/tags/}/tidewatch_*_arm64.deb
+
+          # Install
+          sudo apt install ./tidewatch_*_arm64.deb
+
+          # Verify installation
+          systemctl status tidewatch
+          \`\`\`
+
+          ## What's New
+
+          - Debian packaging for arm64 and armhf
+          - Systemd watchdog integration
+          - Process locking
+          - Automated database migrations
+
+          ## Package Verification
+
+          \`\`\`bash
+          # Import GPG key
+          wget https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF#refs/tags/}/tidewatch-signing-key.asc
+          gpg --import tidewatch-signing-key.asc
+
+          # Verify signature
+          gpg --verify tidewatch_*_arm64.deb.asc tidewatch_*_arm64.deb
+
+          # Verify checksum
+          sha256sum -c tidewatch_*_arm64.deb.sha256
+          \`\`\`
+          EOF
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          body_path: RELEASE_NOTES.md
+          files: |
+            packages-arm64/tidewatch_*.deb
+            packages-arm64/tidewatch_*.deb.sha256
+            packages-arm64/tidewatch_*.deb.asc
+            packages-armhf/tidewatch_*.deb
+            packages-armhf/tidewatch_*.deb.sha256
+            packages-armhf/tidewatch_*.deb.asc
+            tidewatch-signing-key.asc
