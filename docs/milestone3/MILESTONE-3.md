@@ -1,8 +1,8 @@
-# Milestone 3: Debian Packaging for ARM Ecosystem
+# Milestone 3: Debian Packaging for Multi-Architecture Support
 
 ## Overview
 
-Milestone 3 focuses on creating production-ready Debian packages for the ARM ecosystem, enabling easy installation and management of Tidewatch (formerly thugshells/belabox-metrics) on embedded devices like Orange Pi, Raspberry Pi, and other ARM-based systems.
+Milestone 3 focuses on creating production-ready Debian packages for multiple architectures, enabling easy installation and management of Tidewatch (formerly thugshells/belabox-metrics) on x86_64 servers, embedded devices like Orange Pi, Raspberry Pi, and other Linux systems.
 
 **New Project Name: `tidewatch`**
 - Unique, memorable, no trademark conflicts
@@ -11,7 +11,7 @@ Milestone 3 focuses on creating production-ready Debian packages for the ARM eco
 
 ## Goals
 
-1. Create Debian packages for arm64 and armhf architectures
+1. Create Debian packages for amd64, arm64, and armhf architectures
 2. Implement automated build pipeline via GitHub Actions
 3. Integrate systemd watchdog and process locking from M2
 4. Enable safe unattended upgrades with automatic database migrations
@@ -23,7 +23,7 @@ Milestone 3 focuses on creating production-ready Debian packages for the ARM eco
 ### In Scope
 
 - Debian package infrastructure (`debian/` directory)
-- Multi-architecture builds (arm64, armhf)
+- Multi-architecture builds (amd64, arm64, armhf)
 - GitHub Actions CI/CD pipeline
 - GPG package signing
 - Systemd watchdog integration
@@ -37,7 +37,6 @@ Milestone 3 focuses on creating production-ready Debian packages for the ARM eco
 
 - Custom APT repository hosting
 - RPM packages for Red Hat/Fedora
-- x86_64 packages
 - Raspbian-specific optimizations
 - Multi-distro support beyond Debian
 
@@ -366,7 +365,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [arm64, armhf]
+        arch: [amd64, arm64, armhf]
 
     steps:
       - name: Checkout
@@ -494,7 +493,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [arm64, armhf]
+        arch: [amd64, arm64, armhf]
 
     steps:
       - name: Checkout
@@ -555,7 +554,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [arm64, armhf]
+        arch: [amd64, arm64, armhf]
 
     steps:
       - name: Checkout
@@ -652,7 +651,7 @@ jobs:
 
           ## What's New
 
-          - Debian packaging for arm64 and armhf
+          - Debian packaging for amd64, arm64, and armhf architectures
           - Systemd watchdog integration
           - Process locking
           - Automated database migrations
@@ -1314,15 +1313,15 @@ echo "=== Purge Test: PASSED ==="
 
 #### Test Matrix
 
-| Test | arm64 | armhf | Status |
-|------|-------|-------|--------|
-| Install | ✅ | ✅ | |
-| Upgrade | ✅ | ✅ | |
-| Remove | ✅ | ✅ | |
-| Purge | ✅ | ✅ | |
-| Functional | ✅ | ✅ | |
-| Double-start | ✅ | ✅ | |
-| Watchdog | ✅ | ✅ | |
+| Test | amd64 | arm64 | armhf | Status |
+|------|-------|-------|-------|--------|
+| Install | ✅ | ✅ | ✅ | |
+| Upgrade | ✅ | ✅ | ✅ | |
+| Remove | ✅ | ✅ | ✅ | |
+| Purge | ✅ | ✅ | ✅ | |
+| Functional | ✅ | ✅ | ✅ | |
+| Double-start | ✅ | ✅ | ✅ | |
+| Watchdog | ✅ | ✅ | ✅ | |
 
 ### Phase 7: Release Process (Day 5, ~4 hours)
 
@@ -1360,7 +1359,7 @@ echo "=== Purge Test: PASSED ==="
 ## Acceptance Criteria
 
 ### Package Quality
-- ✅ Packages build successfully for arm64 and armhf
+- ✅ Packages build successfully for amd64, arm64, and armhf
 - ✅ No lintian errors or warnings
 - ✅ Package size <20MB
 - ✅ GPG signatures valid
@@ -1395,7 +1394,7 @@ echo "=== Purge Test: PASSED ==="
 
 ### Testing
 - ✅ All Docker integration tests pass
-- ✅ Both architectures tested
+- ✅ All three architectures tested (amd64, arm64, armhf)
 - ✅ Install/upgrade/remove scenarios covered
 - ✅ Functional tests pass
 
@@ -1416,7 +1415,7 @@ echo "=== Purge Test: PASSED ==="
 
 ## Success Metrics
 
-1. **Build Success Rate**: 100% (both architectures build without errors)
+1. **Build Success Rate**: 100% (all three architectures build without errors)
 2. **Test Pass Rate**: 100% (all integration tests pass)
 3. **Install Time**: <30 seconds
 4. **Package Size**: <20MB per architecture
@@ -1455,9 +1454,8 @@ echo "=== Purge Test: PASSED ==="
 ### Future Enhancements (M4+)
 - Custom APT repository hosting
 - RPM packages for Red Hat/Fedora
-- x86_64 packages for testing
 - Debian package linting automation
-- Multi-distro support matrix
+- Multi-distro support matrix (Ubuntu LTS variants, Raspbian)
 - Automated security updates workflow
 - Package performance profiling
 
@@ -1470,4 +1468,4 @@ echo "=== Purge Test: PASSED ==="
 
 ---
 
-**Milestone 3 Completion**: All acceptance criteria met, packages available on GitHub Releases, documentation complete, ready for production deployment on ARM devices.
+**Milestone 3 Completion**: All acceptance criteria met, packages available on GitHub Releases, documentation complete, ready for production deployment on x86_64 servers and ARM devices.

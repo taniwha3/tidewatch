@@ -1,4 +1,30 @@
 services:
+  tidewatch-amd64:
+    build:
+      context: .
+      dockerfile: Dockerfile.amd64
+    platform: linux/amd64
+    privileged: true
+    cgroup: host
+    security_opt:
+      - seccomp=unconfined
+    volumes:
+      - ./packages:/packages:ro
+      - .:/tests:ro  # Mount current dir (tests/) to /tests in container
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    tmpfs:
+      - /run
+      - /run/lock
+    networks:
+      - metrics
+    stop_signal: SIGRTMIN+3
+    healthcheck:
+      test: ["CMD-SHELL", "systemctl is-system-running --wait >/dev/null 2>&1 || systemctl is-system-running | grep -qE '(running|degraded)'"]
+      interval: 5s
+      timeout: 30s
+      retries: 10
+      start_period: 10s
+
   tidewatch-arm64:
     build:
       context: .

@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [arm64, armhf]
+        arch: [amd64, arm64, armhf]
 
     steps:
       - name: Checkout
@@ -126,7 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [arm64, armhf]
+        arch: [amd64, arm64, armhf]
 
     steps:
       - name: Checkout
@@ -141,12 +141,12 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
-          platforms: arm64,arm
+          platforms: amd64,arm64,arm
 
       - name: Smoke test - package installation
         run: |
           # Basic smoke test without systemd (full integration tests use docker-compose)
-          PLATFORM=${{ matrix.arch == 'armhf' && 'linux/arm/v7' || 'linux/arm64' }}
+          PLATFORM=${{ matrix.arch == 'armhf' && 'linux/arm/v7' || (matrix.arch == 'amd64' && 'linux/amd64' || 'linux/arm64') }}
           docker run --platform $PLATFORM --rm -v $(pwd):/workspace \
             debian:bookworm-slim /bin/bash -c "
               cd /workspace
@@ -164,7 +164,7 @@ jobs:
 
       - name: Smoke test - package removal
         run: |
-          PLATFORM=${{ matrix.arch == 'armhf' && 'linux/arm/v7' || 'linux/arm64' }}
+          PLATFORM=${{ matrix.arch == 'armhf' && 'linux/arm/v7' || (matrix.arch == 'amd64' && 'linux/amd64' || 'linux/arm64') }}
           docker run --platform $PLATFORM --rm -v $(pwd):/workspace \
             debian:bookworm-slim /bin/bash -c "
               cd /workspace
@@ -188,7 +188,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [arm64, armhf]
+        arch: [amd64, arm64, armhf]
 
     steps:
       - name: Checkout
@@ -203,7 +203,7 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
-          platforms: arm64,arm
+          platforms: amd64,arm64,arm
 
       - name: Create test directory structure
         run: |
@@ -295,11 +295,12 @@ jobs:
           ## Installation
 
           \`\`\`bash
-          # Download package for your architecture
-          wget https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF#refs/tags/}/tidewatch_*_arm64.deb
+          # Download package for your architecture (amd64, arm64, or armhf)
+          ARCH=\$(dpkg --print-architecture)
+          wget https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF#refs/tags/}/tidewatch_*_\${ARCH}.deb
 
           # Install
-          sudo apt install ./tidewatch_*_arm64.deb
+          sudo apt install ./tidewatch_*_\${ARCH}.deb
 
           # Verify installation
           systemctl status tidewatch
@@ -307,7 +308,7 @@ jobs:
 
           ## What's New
 
-          - Debian packaging for arm64 and armhf
+          - Debian packaging for amd64, arm64, and armhf architectures
           - Systemd watchdog integration
           - Process locking
           - Automated database migrations
@@ -319,11 +320,12 @@ jobs:
           wget https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF#refs/tags/}/tidewatch-signing-key.asc
           gpg --import tidewatch-signing-key.asc
 
-          # Verify signature
-          gpg --verify tidewatch_*_arm64.deb.asc tidewatch_*_arm64.deb
+          # Verify signature (replace ARCH with your architecture)
+          ARCH=\$(dpkg --print-architecture)
+          gpg --verify tidewatch_*_\${ARCH}.deb.asc tidewatch_*_\${ARCH}.deb
 
           # Verify checksum
-          sha256sum -c tidewatch_*_arm64.deb.sha256
+          sha256sum -c tidewatch_*_\${ARCH}.deb.sha256
           \`\`\`
           EOF
 
@@ -332,6 +334,9 @@ jobs:
         with:
           body_path: RELEASE_NOTES.md
           files: |
+            packages-amd64/tidewatch_*.deb
+            packages-amd64/tidewatch_*.deb.sha256
+            packages-amd64/tidewatch_*.deb.asc
             packages-arm64/tidewatch_*.deb
             packages-arm64/tidewatch_*.deb.sha256
             packages-arm64/tidewatch_*.deb.asc

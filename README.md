@@ -32,6 +32,17 @@ A lightweight, high-performance metrics collection system designed for Orange Pi
 - ✅ **Clock Skew Detection**: Time synchronization monitoring
 - ✅ **Structured Logging**: JSON/console formats with contextual fields
 
+## Milestone 3: Complete ✅
+
+- ✅ **Debian Packaging**: Production-ready `.deb` packages for amd64, arm64, and armhf
+- ✅ **Systemd Watchdog**: Automatic restart on hang/crash with 60s timeout
+- ✅ **Process Locking**: Prevents double-start with file-based locking
+- ✅ **Automated CI/CD**: GitHub Actions pipeline for building, testing, and releasing
+- ✅ **Security Hardening**: Systemd directives, dedicated user, resource limits
+- ✅ **Database Migrations**: Automatic schema migrations on upgrade
+- ✅ **Integration Tests**: Docker-based tests for all architectures with VictoriaMetrics
+- ✅ **Installation Documentation**: Quick-start, detailed guides, and troubleshooting
+
 ## Project Structure
 
 ```
@@ -54,7 +65,50 @@ tidewatch/
 └── PRD.md                     # Product requirements document
 ```
 
-## Quick Start with VictoriaMetrics (Milestone 2)
+## Installation (Debian/Ubuntu on ARM)
+
+### Quick Install
+
+```bash
+# Detect architecture
+ARCH=$(dpkg --print-architecture)
+
+# Download latest release (replace VERSION with actual version, e.g., 3.0.0-1)
+VERSION="3.0.0-1"
+wget https://github.com/taniwha3/tidewatch/releases/download/v${VERSION}/tidewatch_${VERSION}_${ARCH}.deb
+
+# Install
+sudo apt install ./tidewatch_${VERSION}_${ARCH}.deb
+
+# Verify
+sudo systemctl status tidewatch
+tidewatch -version
+```
+
+The service starts automatically and begins collecting metrics.
+
+### Configure VictoriaMetrics
+
+Edit `/etc/tidewatch/config.yaml`:
+
+```yaml
+remote:
+  url: http://your-victoriametrics:8428/api/v1/import
+  enabled: true
+```
+
+Restart the service:
+
+```bash
+sudo systemctl restart tidewatch
+```
+
+**Documentation**: See [docs/installation/](docs/installation/) for detailed guides:
+- [Quick Start](docs/installation/quick-start.md)
+- [Detailed Installation](docs/installation/detailed-install.md)
+- [Troubleshooting](docs/installation/troubleshooting.md)
+
+## Development Quick Start
 
 ### 1. Start VictoriaMetrics
 
@@ -119,44 +173,49 @@ sqlite3 /var/lib/tidewatch/metrics.db \
   "SELECT metric_name, metric_value FROM metrics ORDER BY timestamp_ms DESC LIMIT 10"
 ```
 
-## Deployment to Orange Pi
+## Package Management
 
-### 1. Build for ARM64
-
-```bash
-./scripts/build.sh
-```
-
-### 2. Copy to Orange Pi
+### Service Commands
 
 ```bash
-scp -r bin configs scripts systemd user@orangepi:/tmp/tidewatch
-```
+# Start service
+sudo systemctl start tidewatch
 
-### 3. Install on Orange Pi
+# Stop service
+sudo systemctl stop tidewatch
 
-```bash
-ssh user@orangepi
-cd /tmp/tidewatch
-sudo ./scripts/install.sh bin/tidewatch-linux-arm64
-```
+# Restart service
+sudo systemctl restart tidewatch
 
-### 4. Verify Installation
-
-```bash
-# Check service status
+# View status
 sudo systemctl status tidewatch
 
-# Watch logs
+# View logs
 sudo journalctl -u tidewatch -f
+```
 
-# Query metrics
-sudo sqlite3 /var/lib/tidewatch/metrics.db \
-  "SELECT datetime(timestamp_ms/1000, 'unixepoch') as time,
-          metric_name, metric_value
-   FROM metrics
-   ORDER BY timestamp_ms DESC
-   LIMIT 20"
+### Upgrading
+
+```bash
+# Download new version
+wget https://github.com/taniwha3/tidewatch/releases/download/vVERSION/tidewatch_VERSION_ARCH.deb
+
+# Install (preserves config and data)
+sudo apt install ./tidewatch_*.deb
+
+# Verify upgrade
+tidewatch -version
+sudo systemctl status tidewatch
+```
+
+### Uninstalling
+
+```bash
+# Remove package (keeps config and data)
+sudo apt remove tidewatch
+
+# Complete removal (deletes everything)
+sudo apt purge tidewatch
 ```
 
 ## Configuration
@@ -373,17 +432,26 @@ metrics:
 
 ## Documentation
 
-- **[Health Monitoring](docs/health-monitoring.md)** - Health endpoints, status levels, alerting
-- **[VictoriaMetrics Setup](docs/victoriametrics-setup.md)** - Installation, querying, PromQL examples
-- **[Belabox Integration](docs/belabox-integration.md)** - Orange Pi deployment notes
-- **[Milestone 1 Spec](MILESTONE-1.md)** - M1 requirements and acceptance criteria
-- **[Milestone 2 Spec](MILESTONE-2.md)** - M2 requirements and acceptance criteria (in progress)
-- **[Product Requirements](PRD.md)** - Full product roadmap
+### Installation & Usage
+- **[Quick Start Guide](docs/installation/quick-start.md)** - Get started in 5 minutes
+- **[Detailed Installation](docs/installation/detailed-install.md)** - Comprehensive install guide
+- **[Troubleshooting](docs/installation/troubleshooting.md)** - Common issues and solutions
+
+### Development
+- **[Build from Source](docs/packaging/build-from-source.md)** - Local builds and contributing
+- **[Health Monitoring](docs/health-monitoring.md)** - Health endpoints, status levels
+- **[VictoriaMetrics Setup](docs/victoriametrics-setup.md)** - Installation, querying, PromQL
+
+### Milestones
+- **[Milestone 1](MILESTONE-1.md)** - Initial release (complete)
+- **[Milestone 2](MILESTONE-2.md)** - System metrics & reliability (complete)
+- **[Milestone 3](docs/milestone3/MILESTONE-3.md)** - Debian packaging (complete)
+- **[Product Roadmap](PRD.md)** - Full product vision
 
 ## Future Milestones
 
-**Milestone 3**: Real SRT stats, encoder metrics, alerting
-**Milestone 4**: Priority queue, backfill, data retention
+**Milestone 4**: Real SRT stats, encoder metrics, alerting
+**Milestone 5**: Priority queue, backfill, data retention
 
 ## License
 

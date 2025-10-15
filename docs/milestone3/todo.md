@@ -1,9 +1,9 @@
-# Milestone 3: Debian Packaging for ARM Ecosystem
+# Milestone 3: Debian Packaging for Multi-Architecture Support
 
 ## Overview
-Create production-ready Debian packages for tidewatch daemon targeting ARM devices (Orange Pi, etc.)
+Create production-ready Debian packages for tidewatch daemon targeting x86_64 servers and ARM devices
 
-**Target Architectures:** arm64, armhf
+**Target Architectures:** amd64, arm64, armhf
 **Package Name:** tidewatch
 **Build System:** GitHub Actions + nfpm
 **Testing:** Docker + QEMU emulation
@@ -64,7 +64,7 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 - [x] Create `nfpm.yaml` in project root
   - [x] Configure package name (tidewatch)
   - [x] Set version from git tag/semver (uses $VERSION env var)
-  - [x] Define architectures (arm64, armhf)
+  - [x] Define architectures (amd64, arm64, armhf)
   - [x] Declare dependencies (systemd, adduser, ca-certificates)
   - [x] Set recommends (sqlite3)
   - [x] Set suggests (victoriametrics)
@@ -94,7 +94,7 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 
 ### Build Helpers
 - [x] Create `scripts/build-deb.sh` helper script
-  - [x] Cross-compilation for arm64/armhf
+  - [x] Cross-compilation for amd64/arm64/armhf
   - [x] nfpm packaging with --config flag
   - [x] SHA256 checksum generation
   - [x] Usage instructions for GPG signing
@@ -161,7 +161,11 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 - [x] Create `tests/Dockerfile.armhf`
   - [x] Base on arm32v7/debian:bookworm-slim
   - [x] Same configuration as arm64
+- [x] Create `tests/Dockerfile.amd64`
+  - [x] Base on amd64/debian:bookworm-slim
+  - [x] Same configuration as arm64
 - [x] Create `tests/docker-compose.yml`
+  - [x] Add tidewatch-amd64 test container
   - [x] Add tidewatch-arm64 test container
   - [x] Add tidewatch-armhf test container
   - [x] Add VictoriaMetrics container
@@ -204,7 +208,7 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 ### CI Integration ✅
 - [x] Add integration test job to GitHub Actions
 - [x] Configure QEMU for ARM emulation (docker/setup-qemu-action@v3)
-- [x] Run tests on both arm64 and armhf (matrix strategy)
+- [x] Run tests on all three architectures: amd64, arm64, and armhf (matrix strategy)
 - [x] Generate test reports (upload test results as artifacts)
 - [x] Fail build on test failure (set -e in test scripts)
 
@@ -320,7 +324,7 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 
 ## Success Criteria
 
-- [x] ✅ Packages build for both arm64 and armhf
+- [x] ✅ Packages build for all three architectures (amd64, arm64, armhf)
 - [x] ✅ Clean install on Debian Bookworm
 - [x] ✅ Service auto-starts on install
 - [x] ✅ Watchdog integration functional
@@ -364,7 +368,7 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 - ✅ **Complete CI/CD pipeline with build, test, and release jobs**
 - ✅ **Smoke tests for package install/remove verification**
 - ✅ **Integration tests with systemd and VictoriaMetrics**
-- ✅ **Docker test infrastructure (arm64 and armhf Dockerfiles, docker-compose)**
+- ✅ **Docker test infrastructure (amd64, arm64, and armhf Dockerfiles, docker-compose)**
 - ✅ **Test scripts (test-install.sh, test-functional.sh)**
 - ✅ **QEMU emulation for ARM testing on x86_64 runners**
 - ✅ **Automated GitHub Releases with packages, checksums, and GPG signatures**
@@ -396,7 +400,7 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 1. ✅ ~~Test the complete workflow end-to-end (Phase 7)~~ **COMPLETED**
    - ✅ Workflow triggered and packages built successfully
    - ✅ All integration tests passing (install + functional)
-   - ✅ Both arm64 and armhf architectures validated
+   - ✅ All three architectures validated (amd64, arm64, armhf)
 2. Complete user documentation (Phase 5)
    - Installation guides (quick-start, detailed, troubleshooting)
    - Build-from-source documentation

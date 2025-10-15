@@ -12,6 +12,9 @@ metrics-receiver-*
 
 # Build artifacts
 dist/
+*.deb
+*.deb.sha256
+*.deb.asc
 
 # Test binary, built with `go test -c`
 *.test
@@ -49,6 +52,9 @@ Thumbs.db
 *.db-wal
 *.db-shm
 *.log
+
+# Test artifacts
+tests/packages/
 
 # Config with secrets (example config is safe to commit)
 # /configs/config.yaml

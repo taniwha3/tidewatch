@@ -10,8 +10,8 @@ ARCH="${2:-arm64}"
 echo "Building tidewatch ${VERSION} for ${ARCH}"
 
 # Validate architecture
-if [ "$ARCH" != "arm64" ] && [ "$ARCH" != "armhf" ]; then
-    echo "Error: Architecture must be 'arm64' or 'armhf'"
+if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ] && [ "$ARCH" != "armhf" ]; then
+    echo "Error: Architecture must be 'amd64', 'arm64', or 'armhf'"
     exit 1
 fi
 
@@ -20,7 +20,9 @@ mkdir -p bin
 
 # Build binary
 echo "Building binary for ${ARCH}..."
-if [ "$ARCH" = "arm64" ]; then
+if [ "$ARCH" = "amd64" ]; then
+    GOARCH=amd64
+elif [ "$ARCH" = "arm64" ]; then
     GOARCH=arm64
 elif [ "$ARCH" = "armhf" ]; then
     GOARCH=arm

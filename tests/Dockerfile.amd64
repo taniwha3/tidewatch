@@ -1,0 +1,31 @@
+FROM amd64/debian:bookworm-slim
+
+# Mark this as a container for systemd
+ENV container=docker
+
+# Install systemd and dependencies (no recommends for smaller image)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    systemd \
+    systemd-sysv \
+    ca-certificates \
+    sqlite3 \
+    curl \
+    jq \
+    iproute2 \
+    procps \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Mask units that don't make sense in containers or cause noise
+RUN systemctl mask \
+    systemd-udevd.service \
+    getty@.service \
+    console-getty.service \
+    systemd-logind.service \
+    dev-hugepages.mount \
+    dev-mqueue.mount \
+    sys-fs-fuse-connections.mount \
+    systemd-remount-fs.service
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
