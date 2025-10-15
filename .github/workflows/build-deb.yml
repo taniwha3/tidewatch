@@ -216,23 +216,23 @@ jobs:
           # NOTE: docker-compose.yml mounts ./packages (relative to tests/)
           # which correctly maps to tests/packages/ where .deb files are located
           # Start systemd-enabled container with VictoriaMetrics
-          docker-compose up -d victoriametrics
-          docker-compose up -d tidewatch-${ARCH}
+          docker compose up -d victoriametrics
+          docker compose up -d tidewatch-${ARCH}
 
           # Wait for containers to be ready
           sleep 10
 
           # Run installation test (must pass or workflow fails)
           echo "Running installation test..."
-          docker-compose exec -T tidewatch-${ARCH} /tests/test-install.sh
+          docker compose exec -T tidewatch-${ARCH} /tests/test-install.sh
 
           # Run functional test (must pass or workflow fails)
           echo "Running functional test..."
-          docker-compose exec -T tidewatch-${ARCH} /tests/test-functional.sh
+          docker compose exec -T tidewatch-${ARCH} /tests/test-functional.sh
 
           # Cleanup (always run, even if tests fail)
           echo "Cleaning up containers..."
-          docker-compose down -v || true
+          docker compose down -v || true
 
       - name: Upload test results
         if: always()
