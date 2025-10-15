@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   tidewatch-arm64:
     build:
@@ -14,8 +12,11 @@ services:
     tmpfs:
       - /run
       - /run/lock
+      - /tmp
     networks:
       - metrics
+    stop_signal: SIGRTMIN+3
+    tty: true
     command: /lib/systemd/systemd
 
   tidewatch-armhf:
@@ -31,8 +32,11 @@ services:
     tmpfs:
       - /run
       - /run/lock
+      - /tmp
     networks:
       - metrics
+    stop_signal: SIGRTMIN+3
+    tty: true
     command: /lib/systemd/systemd
 
   victoriametrics:
