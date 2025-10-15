@@ -36,17 +36,17 @@ storage:
 logging:
   level: info
   format: console
-collectors:
-  cpu_usage:
+metrics:
+  - name: cpu.usage
     enabled: true
     interval: 10s
-  memory_usage:
+  - name: memory.usage
     enabled: true
     interval: 10s
-  disk_io:
+  - name: disk.io
     enabled: true
     interval: 10s
-  network_traffic:
+  - name: network.traffic
     enabled: true
     interval: 10s
 EOF
