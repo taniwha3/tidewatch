@@ -223,8 +223,25 @@ jobs:
           docker compose up -d victoriametrics
           docker compose up -d tidewatch-${ARCH}
 
-          # Wait for containers to be ready
-          sleep 10
+          # Wait for systemd to be fully initialized (up to 60s)
+          echo "Waiting for systemd to initialize..."
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            if docker compose ps tidewatch-${ARCH} | grep -q "healthy"; then
+              echo "Container is healthy!"
+              break
+            fi
+            echo "Waiting for container health check... ($timeout seconds remaining)"
+            sleep 2
+            timeout=$((timeout - 2))
+          done
+
+          # Verify container is still running
+          if ! docker compose ps tidewatch-${ARCH} | grep -q "Up"; then
+            echo "ERROR: Container failed to start"
+            docker compose logs tidewatch-${ARCH}
+            exit 1
+          fi
 
           # Run installation test (must pass or workflow fails)
           echo "Running installation test..."

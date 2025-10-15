@@ -17,7 +17,14 @@ services:
       - metrics
     stop_signal: SIGRTMIN+3
     tty: true
+    stdin_open: true
     command: /lib/systemd/systemd
+    healthcheck:
+      test: ["CMD", "systemctl", "is-system-running", "--wait"]
+      interval: 5s
+      timeout: 30s
+      retries: 10
+      start_period: 10s
 
   tidewatch-armhf:
     build:
@@ -37,7 +44,14 @@ services:
       - metrics
     stop_signal: SIGRTMIN+3
     tty: true
+    stdin_open: true
     command: /lib/systemd/systemd
+    healthcheck:
+      test: ["CMD", "systemctl", "is-system-running", "--wait"]
+      interval: 5s
+      timeout: 30s
+      retries: 10
+      start_period: 10s
 
   victoriametrics:
     image: victoriametrics/victoria-metrics:latest
