@@ -87,8 +87,7 @@ scripts:
   preremove: ./debian/prerm
   postremove: ./debian/postrm
 
-overrides:
-  deb:
-    fields:
-      Vcs-Browser: https://github.com/taniwha3/tidewatch
-      Vcs-Git: https://github.com/taniwha3/tidewatch.git
+deb:
+  fields:
+    Vcs-Browser: https://github.com/taniwha3/tidewatch
+    Vcs-Git: https://github.com/taniwha3/tidewatch.git
