@@ -320,31 +320,31 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 
 ## Success Criteria
 
-- [ ] ✅ Packages build for both arm64 and armhf
-- [ ] ✅ Clean install on Debian Bookworm
-- [ ] ✅ Service auto-starts on install
-- [ ] ✅ Watchdog integration functional
-- [ ] ✅ Process lock prevents double-start
-- [ ] ✅ Config preserved on upgrade
-- [ ] ✅ Database migrations automatic
-- [ ] ✅ Clean removal (service stops)
-- [ ] ✅ Complete purge (all files removed)
-- [ ] ✅ Docker integration tests pass
-- [ ] ✅ GPG signatures valid
-- [ ] ✅ Documentation complete
-- [ ] ✅ Unattended upgrade safe
+- [x] ✅ Packages build for both arm64 and armhf
+- [x] ✅ Clean install on Debian Bookworm
+- [x] ✅ Service auto-starts on install
+- [x] ✅ Watchdog integration functional
+- [x] ✅ Process lock prevents double-start
+- [ ] ✅ Config preserved on upgrade (not tested - needs old version)
+- [x] ✅ Database migrations automatic
+- [x] ✅ Clean removal (service stops)
+- [x] ✅ Complete purge (all files removed)
+- [x] ✅ Docker integration tests pass (both install and functional)
+- [x] ✅ GPG signatures valid (placeholder mode working)
+- [ ] ✅ Documentation complete (Phase 5 in progress)
+- [ ] ✅ Unattended upgrade safe (needs testing)
 
 ---
 
 ## Progress Summary
 
 **Total Tasks:** ~150 (approximate)
-**Completed:** ~110 (Phases 1-4 complete)
+**Completed:** ~125 (Phases 1-4 complete + all CI/CD fixes)
 **In Progress:** Phase 5 (Documentation)
-**Remaining:** ~40
+**Remaining:** ~25
 
 **Current Phase:** Phase 5 - Documentation
-**Status:** Phase 1 ✅ | Phase 2 ✅ | Phase 3 ✅ | Phase 4 ✅
+**Status:** Phase 1 ✅ | Phase 2 ✅ | Phase 3 ✅ | Phase 4 ✅ (All integration tests passing!)
 
 ### What's Done:
 - ✅ Complete Debian package infrastructure (debian/ directory)
@@ -374,17 +374,34 @@ Create production-ready Debian packages for tidewatch daemon targeting ARM devic
 - ✅ **Fixed artifact paths for reliable smoke tests**
 - ✅ **Workflow reuses tracked nfpm.yaml for consistent packaging**
 - ✅ **All example configs included in packages (/usr/share/doc/tidewatch/examples/)**
+- ✅ **Fixed nfpm.yaml syntax (deb.fields at top level)**
+- ✅ **Fixed ldflags to set main.appVersion (not main.version bool)**
+- ✅ **Docker Compose V2 compatibility (docker compose instead of docker-compose)**
+- ✅ **Debian version validation (ensure starts with digit)**
+- ✅ **Systemd-in-Docker configuration following best practices:**
+  - ✅ ENV container=docker marker for systemd
+  - ✅ Mask noisy/tty units (udev, getty, logind)
+  - ✅ Use /sbin/init as CMD (standard systemd entry point)
+  - ✅ STOPSIGNAL SIGRTMIN+3 for graceful shutdown
+  - ✅ privileged mode with cgroup: host for cgroup management
+  - ✅ seccomp=unconfined to avoid QEMU+seccomp conflicts
+  - ✅ Bind mount /sys/fs/cgroup from host
+  - ✅ Healthcheck accepts degraded state (normal for containers)
+- ✅ **CI wait logic with health-aware polling (not fixed sleep)**
+- ✅ **Test configuration with proper metrics format and collectors enabled**
+- ✅ **VictoriaMetrics query with retry logic for indexing delays**
+- ✅ **URL-encoded query strings for VictoriaMetrics API**
 
 ### Next Steps:
-1. Complete user documentation (Phase 5)
+1. ✅ ~~Test the complete workflow end-to-end (Phase 7)~~ **COMPLETED**
+   - ✅ Workflow triggered and packages built successfully
+   - ✅ All integration tests passing (install + functional)
+   - ✅ Both arm64 and armhf architectures validated
+2. Complete user documentation (Phase 5)
    - Installation guides (quick-start, detailed, troubleshooting)
    - Build-from-source documentation
    - Update main README.md
-2. Test the complete workflow end-to-end (Phase 7)
-   - Trigger workflow manually or with a test tag
-   - Verify packages build successfully
-   - Verify tests pass
 3. Prepare for v3.0.0 release (Phase 7)
    - Update version numbers
    - Final validation on physical ARM hardware (optional)
-   - Create first production release
+   - Create first production release with proper git tag
