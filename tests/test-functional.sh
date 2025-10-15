@@ -54,7 +54,7 @@ fi
 
 # Query VictoriaMetrics
 echo "Querying VictoriaMetrics for metrics..."
-RESPONSE=$(curl -s 'http://victoriametrics:8428/api/v1/query?query=cpu_usage_percent{device_id=~"test-device-.*"}')
+RESPONSE=$(curl -s 'http://victoriametrics:8428/api/v1/query?query=cpu_usage_percent%7Bdevice_id%3D~%22test-device-.*%22%7D')
 echo "VictoriaMetrics response: $RESPONSE"
 
 METRICS=$(echo "$RESPONSE" | jq -r '.data.result | length')
