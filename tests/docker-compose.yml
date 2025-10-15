@@ -8,11 +8,11 @@ services:
     volumes:
       - ./packages:/packages:ro
       - .:/tests:ro  # Mount current dir (tests/) to /tests in container
-      - /sys/fs/cgroup:/sys/fs/cgroup:rw
     tmpfs:
       - /run
       - /run/lock
       - /tmp
+      - /sys/fs/cgroup:rw,mode=755
     networks:
       - metrics
     stop_signal: SIGRTMIN+3
@@ -35,11 +35,11 @@ services:
     volumes:
       - ./packages:/packages:ro
       - .:/tests:ro  # Mount current dir (tests/) to /tests in container
-      - /sys/fs/cgroup:/sys/fs/cgroup:rw
     tmpfs:
       - /run
       - /run/lock
       - /tmp
+      - /sys/fs/cgroup:rw,mode=755
     networks:
       - metrics
     stop_signal: SIGRTMIN+3
