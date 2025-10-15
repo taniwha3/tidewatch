@@ -36,6 +36,19 @@ storage:
 logging:
   level: info
   format: console
+collectors:
+  cpu_usage:
+    enabled: true
+    interval: 10s
+  memory_usage:
+    enabled: true
+    interval: 10s
+  disk_io:
+    enabled: true
+    interval: 10s
+  network_traffic:
+    enabled: true
+    interval: 10s
 EOF
 
 # Restart service with new config
