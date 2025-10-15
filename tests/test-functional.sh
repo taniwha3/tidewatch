@@ -65,22 +65,35 @@ if ! systemctl is-active tidewatch; then
     exit 1
 fi
 
-# Query VictoriaMetrics
+# Query VictoriaMetrics with retries (metrics may take time to index)
 echo "Querying VictoriaMetrics for metrics..."
-RESPONSE=$(curl -s 'http://victoriametrics:8428/api/v1/query?query=cpu_usage_percent%7Bdevice_id%3D~%22test-device-.*%22%7D')
-echo "VictoriaMetrics response: $RESPONSE"
+RETRY_COUNT=0
+MAX_RETRIES=5
+METRICS=0
 
-METRICS=$(echo "$RESPONSE" | jq -r '.data.result | length')
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    RESPONSE=$(curl -s 'http://victoriametrics:8428/api/v1/query?query=cpu_usage_percent%7Bdevice_id%3D~%22test-device-.*%22%7D')
+    echo "Query attempt $((RETRY_COUNT + 1))/$MAX_RETRIES - Response: $RESPONSE"
 
-if [ "$METRICS" -gt 0 ]; then
-    echo "=== Functional Test: PASSED (found $METRICS metric series) ==="
-else
-    echo "=== Functional Test: FAILED (no metrics found) ==="
-    echo "Checking tidewatch logs:"
-    journalctl -u tidewatch -n 50
-    echo "Checking database:"
-    sqlite3 /var/lib/tidewatch/metrics.db "SELECT COUNT(*) FROM metrics;" || true
-    exit 1
-fi
+    METRICS=$(echo "$RESPONSE" | jq -r '.data.result | length')
+
+    if [ "$METRICS" -gt 0 ]; then
+        echo "=== Functional Test: PASSED (found $METRICS metric series) ==="
+        exit 0
+    fi
+
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+        echo "No metrics found yet, waiting 5s before retry..."
+        sleep 5
+    fi
+done
+
+echo "=== Functional Test: FAILED (no metrics found after $MAX_RETRIES attempts) ==="
+echo "Checking tidewatch logs:"
+journalctl -u tidewatch -n 50
+echo "Checking database:"
+sqlite3 /var/lib/tidewatch/metrics.db "SELECT COUNT(*) FROM metrics;" || true
+exit 1
 
 echo "=== Functional Test: PASSED ==="
