@@ -54,7 +54,7 @@ jobs:
           GOARM: ${{ matrix.arch == 'armhf' && '7' || '' }}
           CGO_ENABLED: 0
         run: |
-          go build -ldflags="-s -w -X main.version=${{ steps.version.outputs.version }}" \
+          go build -ldflags="-s -w -X main.appVersion=${{ steps.version.outputs.version }}" \
             -o tidewatch-${{ matrix.arch }} ./cmd/tidewatch
 
       - name: Install nfpm
