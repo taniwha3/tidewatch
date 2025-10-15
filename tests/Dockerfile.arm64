@@ -1,28 +1,31 @@
 FROM arm64v8/debian:bookworm-slim
 
-# Install systemd and dependencies
-RUN apt-get update && apt-get install -y \
+# Mark this as a container for systemd
+ENV container=docker
+
+# Install systemd and dependencies (no recommends for smaller image)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     systemd \
     systemd-sysv \
     ca-certificates \
     sqlite3 \
     curl \
     jq \
+    iproute2 \
+    procps \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Remove unnecessary systemd services
-RUN cd /lib/systemd/system/sysinit.target.wants/ && \
-    ls | grep -v systemd-tmpfiles-setup | xargs rm -f && \
-    rm -f /lib/systemd/system/multi-user.target.wants/* && \
-    rm -f /etc/systemd/system/*.wants/* && \
-    rm -f /lib/systemd/system/local-fs.target.wants/* && \
-    rm -f /lib/systemd/system/sockets.target.wants/*udev* && \
-    rm -f /lib/systemd/system/sockets.target.wants/*initctl* && \
-    rm -f /lib/systemd/system/basic.target.wants/* && \
-    rm -f /lib/systemd/system/anaconda.target.wants/*
+# Mask units that don't make sense in containers or cause noise
+RUN systemctl mask \
+    systemd-udevd.service \
+    getty@.service \
+    console-getty.service \
+    systemd-logind.service \
+    dev-hugepages.mount \
+    dev-mqueue.mount \
+    sys-fs-fuse-connections.mount \
+    systemd-remount-fs.service
 
-# Create mount points
-VOLUME [ "/sys/fs/cgroup", "/run", "/run/lock" ]
-
-# Start systemd
-CMD ["/lib/systemd/systemd"]
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

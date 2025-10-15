@@ -5,22 +5,21 @@ services:
       dockerfile: Dockerfile.arm64
     platform: linux/arm64
     privileged: true
+    cgroup: host
+    security_opt:
+      - seccomp=unconfined
     volumes:
       - ./packages:/packages:ro
       - .:/tests:ro  # Mount current dir (tests/) to /tests in container
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
     tmpfs:
       - /run
       - /run/lock
-      - /tmp
-      - /sys/fs/cgroup:rw,mode=755
     networks:
       - metrics
     stop_signal: SIGRTMIN+3
-    tty: true
-    stdin_open: true
-    command: /lib/systemd/systemd
     healthcheck:
-      test: ["CMD", "systemctl", "is-system-running", "--wait"]
+      test: ["CMD-SHELL", "systemctl is-system-running --wait >/dev/null 2>&1 || systemctl is-system-running | grep -qE '(running|degraded)'"]
       interval: 5s
       timeout: 30s
       retries: 10
@@ -32,22 +31,21 @@ services:
       dockerfile: Dockerfile.armhf
     platform: linux/arm/v7
     privileged: true
+    cgroup: host
+    security_opt:
+      - seccomp=unconfined
     volumes:
       - ./packages:/packages:ro
       - .:/tests:ro  # Mount current dir (tests/) to /tests in container
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
     tmpfs:
       - /run
       - /run/lock
-      - /tmp
-      - /sys/fs/cgroup:rw,mode=755
     networks:
       - metrics
     stop_signal: SIGRTMIN+3
-    tty: true
-    stdin_open: true
-    command: /lib/systemd/systemd
     healthcheck:
-      test: ["CMD", "systemctl", "is-system-running", "--wait"]
+      test: ["CMD-SHELL", "systemctl is-system-running --wait >/dev/null 2>&1 || systemctl is-system-running | grep -qE '(running|degraded)'"]
       interval: 5s
       timeout: 30s
       retries: 10
