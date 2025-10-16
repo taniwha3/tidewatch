@@ -333,12 +333,12 @@ func TestRetryConfigParsing(t *testing.T) {
 		{
 			name: "configured backoff values",
 			config: RetryConfig{
-				Enabled:            boolPtr(true),
-				MaxAttempts:        5,
-				InitialBackoffStr:  "2s",
-				MaxBackoffStr:      "60s",
-				BackoffMultiplier:  2.0,
-				JitterPercent:      intPtr(10),
+				Enabled:           boolPtr(true),
+				MaxAttempts:       5,
+				InitialBackoffStr: "2s",
+				MaxBackoffStr:     "60s",
+				BackoffMultiplier: 2.0,
+				JitterPercent:     intPtr(10),
 			},
 			expectedInitial: 2 * time.Second,
 			expectedMax:     60 * time.Second,
@@ -346,12 +346,12 @@ func TestRetryConfigParsing(t *testing.T) {
 		{
 			name: "default values when empty",
 			config: RetryConfig{
-				Enabled:            boolPtr(true),
-				MaxAttempts:        3,
-				InitialBackoffStr:  "",
-				MaxBackoffStr:      "",
-				BackoffMultiplier:  2.0,
-				JitterPercent:      intPtr(10),
+				Enabled:           boolPtr(true),
+				MaxAttempts:       3,
+				InitialBackoffStr: "",
+				MaxBackoffStr:     "",
+				BackoffMultiplier: 2.0,
+				JitterPercent:     intPtr(10),
 			},
 			expectedInitial: 1 * time.Second,
 			expectedMax:     30 * time.Second,
@@ -359,12 +359,12 @@ func TestRetryConfigParsing(t *testing.T) {
 		{
 			name: "invalid values use defaults",
 			config: RetryConfig{
-				Enabled:            boolPtr(true),
-				MaxAttempts:        3,
-				InitialBackoffStr:  "invalid",
-				MaxBackoffStr:      "invalid",
-				BackoffMultiplier:  2.0,
-				JitterPercent:      intPtr(10),
+				Enabled:           boolPtr(true),
+				MaxAttempts:       3,
+				InitialBackoffStr: "invalid",
+				MaxBackoffStr:     "invalid",
+				BackoffMultiplier: 2.0,
+				JitterPercent:     intPtr(10),
 			},
 			expectedInitial: 1 * time.Second,
 			expectedMax:     30 * time.Second,
@@ -673,5 +673,168 @@ metrics:
 			val = *cfg.Remote.Retry.JitterPercent
 		}
 		t.Errorf("Expected jitter_percent 10, got %d", val)
+	}
+}
+
+// TestAuthTokenFile tests loading auth token from a file
+func TestAuthTokenFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create token file
+	tokenPath := filepath.Join(tmpDir, "token.txt")
+	tokenContent := "my-secret-token-12345\n"
+	if err := os.WriteFile(tokenPath, []byte(tokenContent), 0600); err != nil {
+		t.Fatalf("Failed to write token file: %v", err)
+	}
+
+	yamlContent := `
+device:
+  id: test-device-001
+
+storage:
+  path: /tmp/test.db
+
+remote:
+  url: http://localhost:8428/api/v1/import
+  enabled: true
+  auth_token_file: ` + tokenPath + `
+
+metrics:
+  - name: cpu.usage
+    interval: 10s
+    enabled: true
+`
+
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Verify token was loaded and trimmed
+	expectedToken := "my-secret-token-12345"
+	if cfg.Remote.AuthToken != expectedToken {
+		t.Errorf("Expected auth token '%s', got '%s'", expectedToken, cfg.Remote.AuthToken)
+	}
+}
+
+// TestAuthTokenFileMutualExclusivity tests that both auth_token and auth_token_file cannot be specified
+func TestAuthTokenFileMutualExclusivity(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create token file
+	tokenPath := filepath.Join(tmpDir, "token.txt")
+	if err := os.WriteFile(tokenPath, []byte("token-from-file"), 0600); err != nil {
+		t.Fatalf("Failed to write token file: %v", err)
+	}
+
+	yamlContent := `
+device:
+  id: test-device-001
+
+storage:
+  path: /tmp/test.db
+
+remote:
+  url: http://localhost:8428/api/v1/import
+  enabled: true
+  auth_token: inline-token
+  auth_token_file: ` + tokenPath + `
+
+metrics:
+  - name: cpu.usage
+    interval: 10s
+    enabled: true
+`
+
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	_, err := Load(configPath)
+	if err == nil {
+		t.Fatal("Expected error when both auth_token and auth_token_file are specified")
+	}
+
+	expectedError := "cannot specify both remote.auth_token and remote.auth_token_file"
+	if err.Error() != expectedError {
+		t.Errorf("Expected error '%s', got '%s'", expectedError, err.Error())
+	}
+}
+
+// TestAuthTokenFileNotFound tests error when token file doesn't exist
+func TestAuthTokenFileNotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	yamlContent := `
+device:
+  id: test-device-001
+
+storage:
+  path: /tmp/test.db
+
+remote:
+  url: http://localhost:8428/api/v1/import
+  enabled: true
+  auth_token_file: /nonexistent/token.txt
+
+metrics:
+  - name: cpu.usage
+    interval: 10s
+    enabled: true
+`
+
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	_, err := Load(configPath)
+	if err == nil {
+		t.Fatal("Expected error when token file doesn't exist")
+	}
+}
+
+// TestAuthTokenFileEmpty tests error when token file is empty
+func TestAuthTokenFileEmpty(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create empty token file
+	tokenPath := filepath.Join(tmpDir, "token.txt")
+	if err := os.WriteFile(tokenPath, []byte(""), 0600); err != nil {
+		t.Fatalf("Failed to write token file: %v", err)
+	}
+
+	yamlContent := `
+device:
+  id: test-device-001
+
+storage:
+  path: /tmp/test.db
+
+remote:
+  url: http://localhost:8428/api/v1/import
+  enabled: true
+  auth_token_file: ` + tokenPath + `
+
+metrics:
+  - name: cpu.usage
+    interval: 10s
+    enabled: true
+`
+
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	_, err := Load(configPath)
+	if err == nil {
+		t.Fatal("Expected error when token file is empty")
 	}
 }

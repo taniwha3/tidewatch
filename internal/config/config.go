@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -25,9 +26,9 @@ type DeviceConfig struct {
 
 // StorageConfig contains local storage settings
 type StorageConfig struct {
-	Path                      string `yaml:"path"`
-	WALCheckpointIntervalStr  string `yaml:"wal_checkpoint_interval"`  // How often to checkpoint WAL (default: 1h)
-	WALCheckpointSizeMB       int    `yaml:"wal_checkpoint_size_mb"`   // Checkpoint when WAL exceeds this size (default: 64)
+	Path                     string `yaml:"path"`
+	WALCheckpointIntervalStr string `yaml:"wal_checkpoint_interval"` // How often to checkpoint WAL (default: 1h)
+	WALCheckpointSizeMB      int    `yaml:"wal_checkpoint_size_mb"`  // Checkpoint when WAL exceeds this size (default: 64)
 }
 
 // WALCheckpointInterval parses the checkpoint interval string to time.Duration
@@ -59,12 +60,12 @@ func (s *StorageConfig) WALCheckpointSizeBytes() int64 {
 
 // RetryConfig contains retry settings for uploads
 type RetryConfig struct {
-	Enabled            *bool   `yaml:"enabled"`        // Pointer to distinguish "not set" from "explicitly false"
-	MaxAttempts        int     `yaml:"max_attempts"`
-	InitialBackoffStr  string  `yaml:"initial_backoff"`
-	MaxBackoffStr      string  `yaml:"max_backoff"`
-	BackoffMultiplier  float64 `yaml:"backoff_multiplier"`
-	JitterPercent      *int    `yaml:"jitter_percent"` // Pointer to distinguish "not set" from "explicitly 0"
+	Enabled           *bool   `yaml:"enabled"` // Pointer to distinguish "not set" from "explicitly false"
+	MaxAttempts       int     `yaml:"max_attempts"`
+	InitialBackoffStr string  `yaml:"initial_backoff"`
+	MaxBackoffStr     string  `yaml:"max_backoff"`
+	BackoffMultiplier float64 `yaml:"backoff_multiplier"`
+	JitterPercent     *int    `yaml:"jitter_percent"` // Pointer to distinguish "not set" from "explicitly 0"
 }
 
 // InitialBackoff parses the initial backoff string to time.Duration
@@ -93,13 +94,14 @@ func (r *RetryConfig) MaxBackoff() time.Duration {
 
 // RemoteConfig contains remote endpoint settings
 type RemoteConfig struct {
-	URL               string       `yaml:"url"`
-	Enabled           bool         `yaml:"enabled"`
-	UploadIntervalStr string       `yaml:"upload_interval"`
-	AuthToken         string       `yaml:"auth_token"` // Bearer token for authentication
-	BatchSize         int          `yaml:"batch_size"` // Max metrics per batch query (default: 2500)
-	ChunkSize         int          `yaml:"chunk_size"` // Metrics per chunk upload (default: 50)
-	Retry             RetryConfig  `yaml:"retry"`      // Retry configuration
+	URL               string      `yaml:"url"`
+	Enabled           bool        `yaml:"enabled"`
+	UploadIntervalStr string      `yaml:"upload_interval"`
+	AuthToken         string      `yaml:"auth_token"`      // Bearer token for authentication (inline)
+	AuthTokenFile     string      `yaml:"auth_token_file"` // Path to file containing bearer token
+	BatchSize         int         `yaml:"batch_size"`      // Max metrics per batch query (default: 2500)
+	ChunkSize         int         `yaml:"chunk_size"`      // Metrics per chunk upload (default: 50)
+	Retry             RetryConfig `yaml:"retry"`           // Retry configuration
 }
 
 // GetBatchSize returns the batch size or default
@@ -120,10 +122,10 @@ func (r *RemoteConfig) GetChunkSize() int {
 
 // MonitoringConfig contains monitoring and health check settings
 type MonitoringConfig struct {
-	ClockSkewURL               string `yaml:"clock_skew_url"`                 // URL for clock skew detection (e.g., http://localhost:8428/health)
-	ClockSkewCheckInterval     string `yaml:"clock_skew_check_interval"`      // How often to check clock skew (default: 5m)
-	ClockSkewWarnThresholdMs   int    `yaml:"clock_skew_warn_threshold_ms"`   // Warn when skew exceeds this (default: 2000ms)
-	HealthAddress              string `yaml:"health_address"`                 // Address for health endpoint server (e.g., ":9100")
+	ClockSkewURL             string `yaml:"clock_skew_url"`               // URL for clock skew detection (e.g., http://localhost:8428/health)
+	ClockSkewCheckInterval   string `yaml:"clock_skew_check_interval"`    // How often to check clock skew (default: 5m)
+	ClockSkewWarnThresholdMs int    `yaml:"clock_skew_warn_threshold_ms"` // Warn when skew exceeds this (default: 2000ms)
+	HealthAddress            string `yaml:"health_address"`               // Address for health endpoint server (e.g., ":9100")
 }
 
 // LoggingConfig contains logging settings
@@ -169,11 +171,41 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
+	// Validate that both auth_token and auth_token_file are not specified
+	if cfg.Remote.AuthToken != "" && cfg.Remote.AuthTokenFile != "" {
+		return nil, fmt.Errorf("cannot specify both remote.auth_token and remote.auth_token_file")
+	}
+
+	// Load auth token from file if auth_token_file is specified
+	if cfg.Remote.AuthTokenFile != "" {
+		token, err := loadAuthTokenFromFile(cfg.Remote.AuthTokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load auth token from file: %w", err)
+		}
+		cfg.Remote.AuthToken = token
+	}
+
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
 	return &cfg, nil
+}
+
+// loadAuthTokenFromFile reads an auth token from a file and returns it trimmed
+func loadAuthTokenFromFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read token file %s: %w", path, err)
+	}
+
+	// Trim whitespace and newlines from the token
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("token file %s is empty", path)
+	}
+
+	return token, nil
 }
 
 // Validate checks if the configuration is valid
