@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/taniwha3/tidewatch/internal/models"
@@ -39,6 +40,8 @@ type HTTPUploader struct {
 	backoffMultiplier float64
 	jitterPercent     int
 	chunkSize         int
+	rng               *rand.Rand   // Per-uploader RNG for jitter to prevent thundering herd
+	rngMu             sync.Mutex   // Protects rng for concurrent access
 }
 
 // HTTPUploaderConfig configures the HTTP uploader
@@ -121,6 +124,7 @@ func NewHTTPUploaderWithConfig(cfg HTTPUploaderConfig) *HTTPUploader {
 		backoffMultiplier: backoffMultiplier,
 		jitterPercent:     jitterPercent,
 		chunkSize:         chunkSize,
+		rng:               rand.New(rand.NewSource(time.Now().UnixNano())),
 		client: &http.Client{
 			Timeout: timeout,
 			Transport: &http.Transport{
@@ -365,7 +369,9 @@ func (u *HTTPUploader) calculateBackoff(attempt int, err error) time.Duration {
 	var rateLimitErr *RateLimitError
 	if errors.As(err, &rateLimitErr) && rateLimitErr.RetryAfter > 0 {
 		// Add jitter to Retry-After
-		jitter := time.Duration(rand.Float64() * float64(time.Second))
+		u.rngMu.Lock()
+		jitter := time.Duration(u.rng.Float64() * float64(time.Second))
+		u.rngMu.Unlock()
 		return rateLimitErr.RetryAfter + jitter
 	}
 
@@ -379,7 +385,9 @@ func (u *HTTPUploader) calculateBackoff(attempt int, err error) time.Duration {
 
 	// Add jitter using configured percentage (convert to fraction)
 	jitterFraction := float64(u.jitterPercent) / 100.0
-	jitter := backoff * jitterFraction * (rand.Float64()*2 - 1)
+	u.rngMu.Lock()
+	jitter := backoff * jitterFraction * (u.rng.Float64()*2 - 1)
+	u.rngMu.Unlock()
 	backoff += jitter
 
 	return time.Duration(backoff)
