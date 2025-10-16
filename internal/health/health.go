@@ -273,7 +273,7 @@ func (c *Checker) calculateOverallStatus(components map[string]ComponentStatus) 
 
 	collectorErrorCount := 0
 	collectorTotalCount := 0
-	hasError := false
+	hasNonCollectorError := false
 	hasDegraded := false
 
 	for name, component := range components {
@@ -283,12 +283,15 @@ func (c *Checker) calculateOverallStatus(components map[string]ComponentStatus) 
 			if component.Status == StatusError {
 				collectorErrorCount++
 			}
+		} else {
+			// Track errors in non-collector components separately
+			if component.Status == StatusError {
+				hasNonCollectorError = true
+			}
 		}
 
-		switch component.Status {
-		case StatusError:
-			hasError = true
-		case StatusDegraded:
+		// Track degraded status across all components
+		if component.Status == StatusDegraded {
 			hasDegraded = true
 		}
 	}
@@ -306,14 +309,15 @@ func (c *Checker) calculateOverallStatus(components map[string]ComponentStatus) 
 		return StatusError
 	}
 
+	// Error if any non-collector component has error (e.g., time check failure)
+	// Must check before degraded to ensure errors take priority over degraded status
+	if hasNonCollectorError {
+		return StatusError
+	}
+
 	// Degraded if any component is degraded or at least one collector has error
 	if hasDegraded || collectorErrorCount > 0 {
 		return StatusDegraded
-	}
-
-	// Error if any critical component has error (but not handled above)
-	if hasError {
-		return StatusError
 	}
 
 	return StatusOK
