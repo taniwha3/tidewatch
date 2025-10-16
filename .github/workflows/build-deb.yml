@@ -329,6 +329,17 @@ jobs:
           \`\`\`
           EOF
 
+      - name: Prepare release assets
+        run: |
+          # Remove empty .asc files (placeholder mode when GPG secrets aren't set)
+          # GitHub doesn't allow 0-byte assets in releases
+          find packages-* -name "*.asc" -size 0 -delete
+          # Also remove empty signing key if present
+          if [ -f tidewatch-signing-key.asc ] && [ ! -s tidewatch-signing-key.asc ]; then
+            rm tidewatch-signing-key.asc
+          fi
+          echo "Release assets prepared (empty signature files removed)"
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
