@@ -336,7 +336,7 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			runClockSkewLoop(ctx, cfg, store, healthChecker, clockCheckInterval, warnThresholdMs, logger)
+			runClockSkewLoop(ctx, cfg, store, healthChecker, metricsCollector, clockCheckInterval, warnThresholdMs, logger)
 		}()
 	}
 
@@ -775,6 +775,7 @@ func runClockSkewLoop(
 	cfg *config.Config,
 	store *storage.SQLiteStorage,
 	healthChecker *health.Checker,
+	metricsCollector *monitoring.MetricsCollector,
 	interval time.Duration,
 	warnThresholdMs int64,
 	logger *slog.Logger,
@@ -799,14 +800,14 @@ func runClockSkewLoop(
 	})
 
 	// Check immediately on start
-	checkClockSkew(ctx, clockCollector, store, healthChecker, logger)
+	checkClockSkew(ctx, clockCollector, store, healthChecker, metricsCollector, logger)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			checkClockSkew(ctx, clockCollector, store, healthChecker, logger)
+			checkClockSkew(ctx, clockCollector, store, healthChecker, metricsCollector, logger)
 		}
 	}
 }
@@ -817,6 +818,7 @@ func checkClockSkew(
 	clockCollector collector.Collector,
 	store *storage.SQLiteStorage,
 	healthChecker *health.Checker,
+	metricsCollector *monitoring.MetricsCollector,
 	logger *slog.Logger,
 ) {
 	metrics, err := clockCollector.Collect(ctx)
@@ -848,6 +850,11 @@ func checkClockSkew(
 	// Update health status
 	if healthChecker != nil {
 		healthChecker.UpdateClockSkewStatus(skewMs, nil)
+	}
+
+	// Update meta-metrics collector
+	if metricsCollector != nil {
+		metricsCollector.UpdateTimeSkew(skewMs)
 	}
 
 	logger.Debug("Clock skew check completed", slog.Int64("skew_ms", skewMs))
