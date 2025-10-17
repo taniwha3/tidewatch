@@ -675,7 +675,8 @@ metrics:
 		if enabled {
 			maxAttempts := cfg.Remote.Retry.MaxAttempts
 			uploaderCfg.MaxRetries = &maxAttempts
-			uploaderCfg.RetryDelay = cfg.Remote.Retry.InitialBackoff()
+			retryDelay, _ := cfg.Remote.Retry.InitialBackoff()
+			uploaderCfg.RetryDelay = retryDelay
 		} else {
 			// Explicitly disabled
 			zero := 0
@@ -797,7 +798,8 @@ metrics:
 				maxRetries = 0
 			}
 			uploaderCfg.MaxRetries = &maxRetries
-			uploaderCfg.RetryDelay = cfg.Remote.Retry.InitialBackoff()
+			retryDelay, _ := cfg.Remote.Retry.InitialBackoff()
+			uploaderCfg.RetryDelay = retryDelay
 		}
 	}
 
@@ -911,7 +913,8 @@ metrics:
 		if enabled {
 			maxAttempts := cfg.Remote.Retry.MaxAttempts
 			uploaderCfg.MaxRetries = &maxAttempts
-			uploaderCfg.RetryDelay = cfg.Remote.Retry.InitialBackoff()
+			retryDelay, _ := cfg.Remote.Retry.InitialBackoff()
+			uploaderCfg.RetryDelay = retryDelay
 		} else {
 			// Explicitly disabled - set MaxRetries=0
 			zero := 0
@@ -1041,8 +1044,10 @@ metrics:
 				maxRetries = 0
 			}
 			uploaderCfg.MaxRetries = &maxRetries
-			uploaderCfg.RetryDelay = cfg.Remote.Retry.InitialBackoff()
-			uploaderCfg.MaxBackoff = cfg.Remote.Retry.MaxBackoff()
+			retryDelay, _ := cfg.Remote.Retry.InitialBackoff()
+			maxBackoff, _ := cfg.Remote.Retry.MaxBackoff()
+			uploaderCfg.RetryDelay = retryDelay
+			uploaderCfg.MaxBackoff = maxBackoff
 			uploaderCfg.BackoffMultiplier = cfg.Remote.Retry.BackoffMultiplier
 			// JitterPercent: nil means use default (20), otherwise honor the value (even if 0)
 			if cfg.Remote.Retry.JitterPercent != nil {
@@ -1178,8 +1183,10 @@ metrics:
 				maxRetries = 0
 			}
 			uploaderCfg.MaxRetries = &maxRetries
-			uploaderCfg.RetryDelay = cfg.Remote.Retry.InitialBackoff()
-			uploaderCfg.MaxBackoff = cfg.Remote.Retry.MaxBackoff()
+			retryDelay, _ := cfg.Remote.Retry.InitialBackoff()
+			maxBackoff, _ := cfg.Remote.Retry.MaxBackoff()
+			uploaderCfg.RetryDelay = retryDelay
+			uploaderCfg.MaxBackoff = maxBackoff
 			uploaderCfg.BackoffMultiplier = cfg.Remote.Retry.BackoffMultiplier
 			// JitterPercent: nil means use default (20), otherwise honor the value (even if 0)
 			if cfg.Remote.Retry.JitterPercent != nil {
@@ -1423,8 +1430,10 @@ metrics:
 				maxRetries = 0
 			}
 			uploaderCfg.MaxRetries = &maxRetries
-			uploaderCfg.RetryDelay = cfg.Remote.Retry.InitialBackoff()
-			uploaderCfg.MaxBackoff = cfg.Remote.Retry.MaxBackoff()
+			retryDelay, _ := cfg.Remote.Retry.InitialBackoff()
+			maxBackoff, _ := cfg.Remote.Retry.MaxBackoff()
+			uploaderCfg.RetryDelay = retryDelay
+			uploaderCfg.MaxBackoff = maxBackoff
 			uploaderCfg.BackoffMultiplier = cfg.Remote.Retry.BackoffMultiplier
 			// JitterPercent: nil means use default (20), otherwise honor the value (even if 0)
 			if cfg.Remote.Retry.JitterPercent != nil {

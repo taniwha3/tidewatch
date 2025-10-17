@@ -1970,7 +1970,7 @@ func TestConfigWiring_RetryEnabled(t *testing.T) {
 	}
 
 	// Verify initial backoff
-	backoff := cfg.Remote.Retry.InitialBackoff()
+	backoff, _ := cfg.Remote.Retry.InitialBackoff()
 	if backoff != 500*time.Millisecond {
 		t.Errorf("Expected 500ms backoff, got %v", backoff)
 	}
@@ -2035,7 +2035,7 @@ func TestConfigWiring_WALCheckpointInterval(t *testing.T) {
 				},
 			}
 
-			interval := cfg.Storage.WALCheckpointInterval()
+			interval, _ := cfg.Storage.WALCheckpointInterval()
 			if interval != tc.expectedValue {
 				t.Errorf("Expected interval %v, got %v", tc.expectedValue, interval)
 			}
