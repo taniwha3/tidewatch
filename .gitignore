@@ -7,6 +7,7 @@ bin/
 *.dylib
 /metrics-collector
 /metrics-receiver
+/tidewatch
 metrics-collector-*
 metrics-receiver-*
 
