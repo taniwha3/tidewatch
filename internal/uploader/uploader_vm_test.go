@@ -846,3 +846,78 @@ func TestUploadVM_CustomBackoffDefaultRetries(t *testing.T) {
 		t.Errorf("With custom MaxBackoff but MaxRetries=0, expected %d attempts (1 + 3 default retries), got %d", expectedAttempts, attempts)
 	}
 }
+
+// TestUploadVM_NegativeBackoffDurations verifies that negative backoff durations default properly
+// Regression test for security issue where negative durations would cause time.After to fire immediately
+func TestUploadVM_NegativeBackoffDurations(t *testing.T) {
+	tests := []struct {
+		name             string
+		retryDelay       time.Duration
+		maxBackoff       time.Duration
+		expectedDelay    time.Duration
+		expectedMaxBack  time.Duration
+	}{
+		{
+			name:            "negative retry delay uses default",
+			retryDelay:      -1 * time.Second,
+			maxBackoff:      30 * time.Second,
+			expectedDelay:   1 * time.Second,
+			expectedMaxBack: 30 * time.Second,
+		},
+		{
+			name:            "negative max backoff uses default",
+			retryDelay:      2 * time.Second,
+			maxBackoff:      -30 * time.Second,
+			expectedDelay:   2 * time.Second,
+			expectedMaxBack: 30 * time.Second,
+		},
+		{
+			name:            "both negative use defaults",
+			retryDelay:      -5 * time.Second,
+			maxBackoff:      -60 * time.Second,
+			expectedDelay:   1 * time.Second,
+			expectedMaxBack: 30 * time.Second,
+		},
+		{
+			name:            "zero retry delay uses default",
+			retryDelay:      0,
+			maxBackoff:      30 * time.Second,
+			expectedDelay:   1 * time.Second,
+			expectedMaxBack: 30 * time.Second,
+		},
+		{
+			name:            "zero max backoff uses default",
+			retryDelay:      2 * time.Second,
+			maxBackoff:      0,
+			expectedDelay:   2 * time.Second,
+			expectedMaxBack: 30 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uploader := NewHTTPUploaderWithConfig(HTTPUploaderConfig{
+				URL:        "http://example.com",
+				DeviceID:   "device-001",
+				RetryDelay: tt.retryDelay,
+				MaxBackoff: tt.maxBackoff,
+			})
+
+			// Verify internal fields are set to expected defaults
+			if uploader.retryDelay != tt.expectedDelay {
+				t.Errorf("Expected retryDelay %v, got %v", tt.expectedDelay, uploader.retryDelay)
+			}
+			if uploader.maxBackoff != tt.expectedMaxBack {
+				t.Errorf("Expected maxBackoff %v, got %v", tt.expectedMaxBack, uploader.maxBackoff)
+			}
+
+			// Critical: Verify we don't get negative durations that would hammer the endpoint
+			if uploader.retryDelay <= 0 {
+				t.Errorf("retryDelay is non-positive: %v (would cause immediate retry hammering)", uploader.retryDelay)
+			}
+			if uploader.maxBackoff <= 0 {
+				t.Errorf("maxBackoff is non-positive: %v (would cause immediate retry hammering)", uploader.maxBackoff)
+			}
+		})
+	}
+}

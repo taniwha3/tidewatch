@@ -89,12 +89,12 @@ func NewHTTPUploaderWithConfig(cfg HTTPUploaderConfig) *HTTPUploader {
 	}
 
 	retryDelay := cfg.RetryDelay
-	if retryDelay == 0 {
+	if retryDelay <= 0 {
 		retryDelay = 1 * time.Second
 	}
 
 	maxBackoff := cfg.MaxBackoff
-	if maxBackoff == 0 {
+	if maxBackoff <= 0 {
 		maxBackoff = 30 * time.Second
 	}
 
