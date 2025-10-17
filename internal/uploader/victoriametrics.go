@@ -29,8 +29,10 @@ func sanitizeMetricName(name string) string {
 
 	// Counters should end with _total (highest priority - counters don't need unit suffixes)
 	// Heuristic: metrics with "total", "count", or metrics that are cumulative
-	if isCounter(name) && !strings.HasSuffix(safe, "_total") {
-		safe += "_total"
+	if isCounter(name) {
+		if !strings.HasSuffix(safe, "_total") {
+			safe += "_total"
+		}
 		return safe
 	}
 

@@ -208,6 +208,63 @@ func TestIsCounter(t *testing.T) {
 	}
 }
 
+// TestSanitizeMetricName_CounterWithBytesTotal is a regression test for the bug where
+// counter metrics whose names already end in _total still fell through to byte-suffix logic,
+// resulting in double suffixes like network_rx_bytes_total_bytes.
+// This breaks PromQL queries that expect network_rx_bytes_total.
+func TestSanitizeMetricName_CounterWithBytesTotal(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+		issue    string
+	}{
+		{
+			"network.rx_bytes_total",
+			"network_rx_bytes_total",
+			"should not add _bytes suffix to counter already ending in _total",
+		},
+		{
+			"network.tx_bytes_total",
+			"network_tx_bytes_total",
+			"should not add _bytes suffix to counter already ending in _total",
+		},
+		{
+			"disk.read_bytes_total",
+			"disk_read_bytes_total",
+			"should not add _bytes suffix to counter already ending in _total",
+		},
+		{
+			"disk.write_bytes_total",
+			"disk_write_bytes_total",
+			"should not add _bytes suffix to counter already ending in _total",
+		},
+		{
+			"network.rx.bytes.total",
+			"network_rx_bytes_total",
+			"dots should become underscores, but no double suffix",
+		},
+		{
+			// Counter without _total but with bytes - should only get _total
+			"network.rx.bytes",
+			"network_rx_bytes_total",
+			"counter with bytes should only get _total, not _bytes",
+		},
+		{
+			// Already has both _bytes and _total
+			"network_rx_bytes_total",
+			"network_rx_bytes_total",
+			"should be idempotent - no changes needed",
+		},
+	}
+
+	for _, tt := range tests {
+		result := sanitizeMetricName(tt.input)
+		if result != tt.expected {
+			t.Errorf("%s: sanitizeMetricName(%q) = %q, want %q", tt.issue, tt.input, result, tt.expected)
+		}
+	}
+}
+
 // TestBuildVMJSONL_WithTags verifies tags are included and sorted
 func TestBuildVMJSONL_WithTags(t *testing.T) {
 	now := time.Now()
