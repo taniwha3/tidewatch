@@ -135,13 +135,18 @@ type LoggingConfig struct {
 }
 
 // UploadInterval parses the upload interval string to time.Duration
-// Returns default of 30s if not configured
+// Returns default of 30s if not configured or if duration is non-positive
+// Non-positive durations are rejected to prevent panic in time.NewTicker
 func (r *RemoteConfig) UploadInterval() time.Duration {
 	if r.UploadIntervalStr == "" {
 		return 30 * time.Second
 	}
 	duration, err := time.ParseDuration(r.UploadIntervalStr)
 	if err != nil {
+		return 30 * time.Second
+	}
+	// Guard against non-positive intervals to prevent panic in time.NewTicker
+	if duration <= 0 {
 		return 30 * time.Second
 	}
 	return duration
@@ -223,8 +228,13 @@ func (c *Config) Validate() error {
 	// Validate metric intervals
 	for _, m := range c.Metrics {
 		if m.Enabled {
-			if _, err := m.IntervalDuration(); err != nil {
+			interval, err := m.IntervalDuration()
+			if err != nil {
 				return fmt.Errorf("invalid interval for metric %s: %w", m.Name, err)
+			}
+			// Guard against non-positive intervals to prevent panic in time.NewTicker
+			if interval <= 0 {
+				return fmt.Errorf("metric %s: interval must be positive (got %v)", m.Name, interval)
 			}
 		}
 	}

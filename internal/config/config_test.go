@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -836,5 +837,139 @@ metrics:
 	_, err := Load(configPath)
 	if err == nil {
 		t.Fatal("Expected error when token file is empty")
+	}
+}
+
+// TestUploadInterval tests parsing of upload interval configuration
+func TestUploadInterval(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   RemoteConfig
+		expected time.Duration
+	}{
+		{
+			name: "configured interval",
+			config: RemoteConfig{
+				UploadIntervalStr: "60s",
+			},
+			expected: 60 * time.Second,
+		},
+		{
+			name: "default interval when empty",
+			config: RemoteConfig{
+				UploadIntervalStr: "",
+			},
+			expected: 30 * time.Second,
+		},
+		{
+			name: "invalid interval uses default",
+			config: RemoteConfig{
+				UploadIntervalStr: "invalid",
+			},
+			expected: 30 * time.Second,
+		},
+		{
+			name: "negative interval uses default",
+			config: RemoteConfig{
+				UploadIntervalStr: "-1s",
+			},
+			expected: 30 * time.Second,
+		},
+		{
+			name: "zero interval uses default",
+			config: RemoteConfig{
+				UploadIntervalStr: "0s",
+			},
+			expected: 30 * time.Second,
+		},
+		{
+			name: "negative 30 seconds uses default",
+			config: RemoteConfig{
+				UploadIntervalStr: "-30s",
+			},
+			expected: 30 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.UploadInterval()
+			if result != tt.expected {
+				t.Errorf("Expected %v, got %v", tt.expected, result)
+			}
+			// Critical: Verify we can create a ticker without panic
+			// This would panic if interval <= 0
+			ticker := time.NewTicker(result)
+			ticker.Stop()
+		})
+	}
+}
+
+// TestMetricIntervalValidation tests that zero/negative metric intervals are rejected during validation
+func TestMetricIntervalValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name        string
+		interval    string
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "valid interval",
+			interval:    "30s",
+			expectError: false,
+		},
+		{
+			name:        "zero interval",
+			interval:    "0s",
+			expectError: true,
+			errorMsg:    "interval must be positive",
+		},
+		{
+			name:        "negative interval",
+			interval:    "-10s",
+			expectError: true,
+			errorMsg:    "interval must be positive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			yamlContent := `
+device:
+  id: test-device-001
+
+storage:
+  path: /tmp/test.db
+
+remote:
+  url: http://localhost:8428/api/v1/import
+  enabled: true
+
+metrics:
+  - name: cpu.usage
+    interval: ` + tt.interval + `
+    enabled: true
+`
+
+			configPath := filepath.Join(tmpDir, tt.name+".yaml")
+			if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+				t.Fatalf("Failed to write test config: %v", err)
+			}
+
+			_, err := Load(configPath)
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got none")
+				} else if tt.errorMsg != "" && !strings.Contains(err.Error(), tt.errorMsg) {
+					t.Errorf("Expected error containing '%s', got '%s'", tt.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+			}
+		})
 	}
 }
