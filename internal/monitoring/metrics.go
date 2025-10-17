@@ -14,8 +14,8 @@ type MetricsCollector struct {
 	deviceID string
 
 	// Collector metrics
-	collectorMetricsCollected map[string]int64 // collector name -> count
-	collectorMetricsFailed    map[string]int64 // collector name -> count
+	collectorMetricsCollected map[string]int64     // collector name -> count
+	collectorMetricsFailed    map[string]int64     // collector name -> count
 	collectorDurations        map[string][]float64 // collector name -> recent durations (for histogram)
 
 	// Uploader metrics
@@ -38,7 +38,7 @@ type MetricsCollector struct {
 // NewMetricsCollector creates a new meta-metrics collector
 func NewMetricsCollector(deviceID string) *MetricsCollector {
 	return &MetricsCollector{
-		deviceID:                deviceID,
+		deviceID:                  deviceID,
 		collectorMetricsCollected: make(map[string]int64),
 		collectorMetricsFailed:    make(map[string]int64),
 		collectorDurations:        make(map[string][]float64),
@@ -355,13 +355,13 @@ func (m *MetricsCollector) GetCollectorStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"collected":        collectedCopy,
-		"failed":           failedCopy,
-		"uploaded":         m.uploaderMetricsUploaded,
-		"upload_failures":  m.uploaderFailuresTotal,
-		"db_size_bytes":    m.storageDatabaseSizeBytes,
-		"wal_size_bytes":   m.storageWALSizeBytes,
-		"pending_upload":   m.storagePendingUpload,
-		"time_skew_ms":     m.timeSkewMs,
+		"collected":       collectedCopy,
+		"failed":          failedCopy,
+		"uploaded":        m.uploaderMetricsUploaded,
+		"upload_failures": m.uploaderFailuresTotal,
+		"db_size_bytes":   m.storageDatabaseSizeBytes,
+		"wal_size_bytes":  m.storageWALSizeBytes,
+		"pending_upload":  m.storagePendingUpload,
+		"time_skew_ms":    m.timeSkewMs,
 	}
 }

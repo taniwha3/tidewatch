@@ -375,21 +375,21 @@ func TestUploadMetrics_StringMetricsRemainInStorage(t *testing.T) {
 // TestConfigWiring_BatchSize tests that config.remote.batch_size is wired through
 func TestConfigWiring_BatchSize(t *testing.T) {
 	tests := []struct {
-		name              string
-		configBatchSize   int
-		metricsToStore    int
+		name               string
+		configBatchSize    int
+		metricsToStore     int
 		expectedFirstBatch int
 	}{
 		{
-			name:              "custom batch size 1000",
-			configBatchSize:   1000,
-			metricsToStore:    1500,
+			name:               "custom batch size 1000",
+			configBatchSize:    1000,
+			metricsToStore:     1500,
 			expectedFirstBatch: 1000,
 		},
 		{
-			name:              "custom batch size 100",
-			configBatchSize:   100,
-			metricsToStore:    250,
+			name:               "custom batch size 100",
+			configBatchSize:    100,
+			metricsToStore:     250,
 			expectedFirstBatch: 100,
 		},
 	}

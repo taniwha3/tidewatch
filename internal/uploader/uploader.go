@@ -40,8 +40,8 @@ type HTTPUploader struct {
 	backoffMultiplier float64
 	jitterPercent     int
 	chunkSize         int
-	rng               *rand.Rand   // Per-uploader RNG for jitter to prevent thundering herd
-	rngMu             sync.Mutex   // Protects rng for concurrent access
+	rng               *rand.Rand // Per-uploader RNG for jitter to prevent thundering herd
+	rngMu             sync.Mutex // Protects rng for concurrent access
 }
 
 // HTTPUploaderConfig configures the HTTP uploader

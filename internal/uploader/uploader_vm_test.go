@@ -557,7 +557,7 @@ func TestUploadVM_NoRetriesWhenMaxRetriesZero(t *testing.T) {
 	uploader := NewHTTPUploaderWithConfig(HTTPUploaderConfig{
 		URL:        server.URL,
 		DeviceID:   "device-001",
-		MaxRetries: intPtr(0),   // IMPORTANT: &0 means single attempt, no retries
+		MaxRetries: intPtr(0), // IMPORTANT: &0 means single attempt, no retries
 		RetryDelay: 10 * time.Millisecond,
 	})
 
@@ -588,9 +588,9 @@ func TestUploadVM_RetriesEnabledVsDisabled(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		maxRetries     int
-		expectedTries  int
+		name          string
+		maxRetries    int
+		expectedTries int
 	}{
 		{
 			name:          "retries disabled (MaxRetries=0)",
@@ -748,9 +748,9 @@ func TestCalculateBackoff_DefaultsMatchHardcoded(t *testing.T) {
 		URL:               "http://example.com",
 		DeviceID:          "device-001",
 		RetryDelay:        1 * time.Second,
-		BackoffMultiplier: 2.0,  // Default
+		BackoffMultiplier: 2.0,              // Default
 		MaxBackoff:        30 * time.Second, // Default
-		JitterPercent:     intPtr(20),   // Default
+		JitterPercent:     intPtr(20),       // Default
 	})
 
 	// Test that defaults behave like the old hardcoded implementation
@@ -830,7 +830,7 @@ func TestUploadVM_CustomBackoffDefaultRetries(t *testing.T) {
 	uploader := NewHTTPUploaderWithConfig(HTTPUploaderConfig{
 		URL:        server.URL,
 		DeviceID:   "device-001",
-		MaxBackoff: 10 * time.Second, // Custom max backoff
+		MaxBackoff: 10 * time.Second,      // Custom max backoff
 		RetryDelay: 10 * time.Millisecond, // Speed up test
 		// MaxRetries: 0 (not set)
 	})
@@ -851,11 +851,11 @@ func TestUploadVM_CustomBackoffDefaultRetries(t *testing.T) {
 // Regression test for security issue where negative durations would cause time.After to fire immediately
 func TestUploadVM_NegativeBackoffDurations(t *testing.T) {
 	tests := []struct {
-		name             string
-		retryDelay       time.Duration
-		maxBackoff       time.Duration
-		expectedDelay    time.Duration
-		expectedMaxBack  time.Duration
+		name            string
+		retryDelay      time.Duration
+		maxBackoff      time.Duration
+		expectedDelay   time.Duration
+		expectedMaxBack time.Duration
 	}{
 		{
 			name:            "negative retry delay uses default",

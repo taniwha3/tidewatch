@@ -11,10 +11,10 @@ import (
 
 func TestNew(t *testing.T) {
 	tests := []struct {
-		name          string
-		config        Config
-		logLevel      Level
-		shouldWrite   bool
+		name        string
+		config      Config
+		logLevel    Level
+		shouldWrite bool
 	}{
 		{
 			name: "json format info level",
@@ -148,10 +148,10 @@ func TestConsoleFormat(t *testing.T) {
 
 func TestLogLevels(t *testing.T) {
 	tests := []struct {
-		name          string
-		level         Level
-		logFunc       func(*slog.Logger)
-		shouldAppear  bool
+		name         string
+		level        Level
+		logFunc      func(*slog.Logger)
+		shouldAppear bool
 	}{
 		{
 			name:  "debug message at info level",

@@ -565,7 +565,7 @@ func TestBuildChunks_SizeLimit(t *testing.T) {
 		}
 
 		metrics[i] = models.NewMetric("cpu.temperature", float64(40+i), "device-001").
-			WithTimestamp(now.Add(time.Duration(i) * time.Second)).
+			WithTimestamp(now.Add(time.Duration(i)*time.Second)).
 			WithTag("large_tag", largeTag).
 			WithTag("metric_id", fmt.Sprintf("metric-%d", i))
 	}
@@ -773,7 +773,7 @@ func TestBuildVMJSONL_TracksIncludedIDs(t *testing.T) {
 			WithTimestamp(now.Add(time.Second)).
 			WithTag("_storage_id", "101"),
 		models.NewMetric("memory.used", 1024.0, "device-001").
-			WithTimestamp(now.Add(2 * time.Second)).
+			WithTimestamp(now.Add(2*time.Second)).
 			WithTag("_storage_id", "102"),
 	}
 
@@ -803,10 +803,10 @@ func TestBuildChunks_TracksIncludedIDsAcrossChunks(t *testing.T) {
 		models.NewMetric("metric1", 1.0, "device-001").WithTimestamp(now).WithTag("_storage_id", "1"),
 		models.NewMetric("metric2", 2.0, "device-001").WithTimestamp(now.Add(time.Second)).WithTag("_storage_id", "2"),
 		// String metric (should be skipped)
-		models.NewStringMetric("status1", "ok", "device-001").WithTimestamp(now.Add(2 * time.Second)).WithTag("_storage_id", "3"),
+		models.NewStringMetric("status1", "ok", "device-001").WithTimestamp(now.Add(2*time.Second)).WithTag("_storage_id", "3"),
 		// Second chunk: 2 numeric
-		models.NewMetric("metric3", 3.0, "device-001").WithTimestamp(now.Add(3 * time.Second)).WithTag("_storage_id", "4"),
-		models.NewMetric("metric4", 4.0, "device-001").WithTimestamp(now.Add(4 * time.Second)).WithTag("_storage_id", "5"),
+		models.NewMetric("metric3", 3.0, "device-001").WithTimestamp(now.Add(3*time.Second)).WithTag("_storage_id", "4"),
+		models.NewMetric("metric4", 4.0, "device-001").WithTimestamp(now.Add(4*time.Second)).WithTag("_storage_id", "5"),
 	}
 
 	chunks, err := BuildChunks(metrics, 3) // Small chunk size to force multiple chunks
@@ -855,7 +855,7 @@ func TestUploadAndGetIDs_ReturnsOnlyNumericIDs(t *testing.T) {
 			WithTimestamp(now.Add(time.Second)).
 			WithTag("_storage_id", "11"),
 		models.NewMetric("memory.used", 1024.0, "test-device").
-			WithTimestamp(now.Add(2 * time.Second)).
+			WithTimestamp(now.Add(2*time.Second)).
 			WithTag("_storage_id", "12"),
 	}
 

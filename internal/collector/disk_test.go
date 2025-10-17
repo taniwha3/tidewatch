@@ -112,7 +112,6 @@ func TestDiskCollector_EmptyDiskstats(t *testing.T) {
 	}
 }
 
-
 // TestDiskCollector_MetricGeneration verifies metrics are generated correctly
 func TestDiskCollector_MetricGeneration(t *testing.T) {
 	// This is a simple constructor test since we can't mock /proc/diskstats easily
@@ -137,7 +136,7 @@ func TestDiskCollector_CustomPatternCompilation(t *testing.T) {
 		{"valid simple", `^sda$`, true},
 		{"valid complex", `^(nvme\d+n\d+|sda)$`, true},
 		{"invalid", `[invalid(`, false}, // Should fall back to default
-		{"empty", ``, false},             // Should use default
+		{"empty", ``, false},            // Should use default
 	}
 
 	for _, tt := range tests {
@@ -162,4 +161,3 @@ func TestDiskCollector_CustomPatternCompilation(t *testing.T) {
 		})
 	}
 }
-

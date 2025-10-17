@@ -286,7 +286,7 @@ func TestCalculatePercentiles(t *testing.T) {
 			p99:    10.0,
 		},
 		{
-			name:   "100 values (0-99)",
+			name: "100 values (0-99)",
 			values: func() []float64 {
 				vals := make([]float64, 100)
 				for i := 0; i < 100; i++ {

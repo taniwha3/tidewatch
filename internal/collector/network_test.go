@@ -23,26 +23,26 @@ func TestNetworkCollector_DefaultExclusionPatterns(t *testing.T) {
 		{"lo", true},
 		{"docker0", true},
 		{"docker123", true},
-		{"docker_gwbridge", true},      // Docker bridge with underscore
+		{"docker_gwbridge", true}, // Docker bridge with underscore
 		{"veth1a2b3c", true},
-		{"vethABC123", true},           // veth with caps
+		{"vethABC123", true}, // veth with caps
 		{"br-abc123", true},
 		{"wlan0mon", true},
 		{"wlan0mon1", true},
 		{"virbr0", true},
-		{"virbr0-nic", true},           // Real libvirt interface name
+		{"virbr0-nic", true}, // Real libvirt interface name
 		{"virbr1-nic", true},
 		{"wwan0", true},
 		{"wwan1", true},
 		{"wwp0", true},
-		{"wwp0s20f0u6c2", true},        // Real WWAN modem interface name
+		{"wwp0s20f0u6c2", true}, // Real WWAN modem interface name
 		{"usb0", true},
 		{"usb1", true},
-		{"eth0", false},     // Should NOT be excluded
-		{"en0", false},      // Should NOT be excluded
-		{"wlan0", false},    // Should NOT be excluded (only wlanXmonY)
-		{"enp3s0", false},   // Should NOT be excluded
-		{"wlp2s0", false},   // Should NOT be excluded
+		{"eth0", false},   // Should NOT be excluded
+		{"en0", false},    // Should NOT be excluded
+		{"wlan0", false},  // Should NOT be excluded (only wlanXmonY)
+		{"enp3s0", false}, // Should NOT be excluded
+		{"wlp2s0", false}, // Should NOT be excluded
 	}
 
 	for _, tt := range excludeTests {

@@ -73,8 +73,8 @@ func TestStartWALCheckpointRoutine_SizeTriggered(t *testing.T) {
 	checkpointCtx, checkpointCancel := context.WithCancel(context.Background())
 	defer checkpointCancel()
 
-	checkpointInterval := 10 * time.Hour   // Very long periodic interval (won't fire)
-	maxWALSize := int64(1024)              // 1 KB threshold (very low for testing)
+	checkpointInterval := 10 * time.Hour       // Very long periodic interval (won't fire)
+	maxWALSize := int64(1024)                  // 1 KB threshold (very low for testing)
 	sizeCheckInterval := 50 * time.Millisecond // Fast size checks for testing
 
 	// Use internal method to set fast size check interval
@@ -178,8 +178,8 @@ func TestStartWALCheckpointRoutine_StartupSizeCheck(t *testing.T) {
 	checkpointCtx, checkpointCancel := context.WithCancel(context.Background())
 	defer checkpointCancel()
 
-	checkpointInterval := 10 * time.Hour   // Very long interval (won't fire during test)
-	maxWALSize := int64(1024)              // 1 KB threshold (very low for testing)
+	checkpointInterval := 10 * time.Hour // Very long interval (won't fire during test)
+	maxWALSize := int64(1024)            // 1 KB threshold (very low for testing)
 
 	stopCheckpoint := store.StartWALCheckpointRoutine(checkpointCtx, logger, checkpointInterval, maxWALSize)
 	defer stopCheckpoint()

@@ -19,9 +19,9 @@ const (
 
 // ComponentStatus represents the health of a single component
 type ComponentStatus struct {
-	Status    Status    `json:"status"`
-	Message   string    `json:"message,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
+	Status    Status                 `json:"status"`
+	Message   string                 `json:"message,omitempty"`
+	Timestamp time.Time              `json:"timestamp"`
 	Details   map[string]interface{} `json:"details,omitempty"`
 }
 
@@ -44,9 +44,9 @@ type Checker struct {
 // Thresholds defines health status thresholds
 type Thresholds struct {
 	// Upload timing thresholds (seconds)
-	UploadOKInterval       int   `json:"upload_ok_interval"`        // 2x upload interval
-	UploadDegradedInterval int   `json:"upload_degraded_interval"`  // 10x upload interval
-	UploadErrorInterval    int   `json:"upload_error_interval"`     // >10min
+	UploadOKInterval       int `json:"upload_ok_interval"`       // 2x upload interval
+	UploadDegradedInterval int `json:"upload_degraded_interval"` // 10x upload interval
+	UploadErrorInterval    int `json:"upload_error_interval"`    // >10min
 
 	// Pending metrics thresholds
 	PendingOKLimit       int64 `json:"pending_ok_limit"`       // <5000
@@ -61,13 +61,13 @@ type Thresholds struct {
 // Use ThresholdsFromUploadInterval for production to derive from actual config
 func DefaultThresholds() Thresholds {
 	return Thresholds{
-		UploadOKInterval:       60,    // 2x 30s default interval
-		UploadDegradedInterval: 300,   // 10x 30s default interval
-		UploadErrorInterval:    600,   // 10 minutes
+		UploadOKInterval:       60,  // 2x 30s default interval
+		UploadDegradedInterval: 300, // 10x 30s default interval
+		UploadErrorInterval:    600, // 10 minutes
 		PendingOKLimit:         5000,
 		PendingDegradedLimit:   10000,
 		PendingErrorLimit:      10000,
-		ClockSkewThresholdMs:   2000,  // 2 seconds default
+		ClockSkewThresholdMs:   2000, // 2 seconds default
 	}
 }
 
@@ -84,7 +84,7 @@ func ThresholdsFromUploadInterval(uploadInterval time.Duration) Thresholds {
 
 	return Thresholds{
 		// OK: uploads within 2× interval
-		UploadOKInterval:       uploadIntervalSec * 2,
+		UploadOKInterval: uploadIntervalSec * 2,
 
 		// Degraded: no upload between 2×-10× interval
 		UploadDegradedInterval: uploadIntervalSec * 10,
@@ -92,15 +92,15 @@ func ThresholdsFromUploadInterval(uploadInterval time.Duration) Thresholds {
 		// Error: no upload >10min (fixed at 600s per M2 spec)
 		// The 10-minute threshold is a hard requirement regardless of upload interval
 		// to ensure timely escalation when combined with high pending count
-		UploadErrorInterval:    600,
+		UploadErrorInterval: 600,
 
 		// Pending count thresholds are independent of upload interval
-		PendingOKLimit:         5000,
-		PendingDegradedLimit:   10000,
-		PendingErrorLimit:      10000,
+		PendingOKLimit:       5000,
+		PendingDegradedLimit: 10000,
+		PendingErrorLimit:    10000,
 
 		// Clock skew threshold (default 2000ms, can be overridden)
-		ClockSkewThresholdMs:   2000,
+		ClockSkewThresholdMs: 2000,
 	}
 }
 
@@ -200,8 +200,8 @@ func (c *Checker) UpdateStorageStatus(dbSize int64, walSize int64, pendingCount 
 		Timestamp: time.Now(),
 		Details: map[string]interface{}{
 			"database_size_bytes": dbSize,
-			"wal_size_bytes":     walSize,
-			"pending_count":      pendingCount,
+			"wal_size_bytes":      walSize,
+			"pending_count":       pendingCount,
 		},
 	}
 
@@ -370,8 +370,8 @@ func (c *Checker) ReadinessHandler() http.HandlerFunc {
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"status":  "not_ready",
-				"message": "system is not in OK state",
+				"status":         "not_ready",
+				"message":        "system is not in OK state",
 				"current_status": string(report.Status),
 			})
 		}

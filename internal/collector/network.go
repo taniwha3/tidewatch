@@ -10,15 +10,15 @@ import (
 
 // Default interface exclusion patterns (high-cardinality ephemeral interfaces)
 var defaultExcludePatterns = []string{
-	`^lo$`,           // Loopback
-	`^docker.*`,      // Docker bridges (docker0, docker_gwbridge, etc.)
-	`^veth.*`,        // Virtual ethernet pairs (veth1a2b3c, vethABC123, etc.)
-	`^br-.*`,         // Linux bridges (br-abc123, etc.)
-	`^wlan\d+mon.*`,  // Wireless monitor interfaces (wlan0mon, wlan0mon1, etc.)
-	`^virbr.*`,       // libvirt bridges (virbr0, virbr0-nic, etc.)
-	`^wwan.*`,        // Wireless WAN (wwan0, etc.)
-	`^wwp.*`,         // Wireless WAN alternative (wwp0s20f0u6c2, etc.)
-	`^usb.*`,         // USB network (usb0, usb1, etc.)
+	`^lo$`,          // Loopback
+	`^docker.*`,     // Docker bridges (docker0, docker_gwbridge, etc.)
+	`^veth.*`,       // Virtual ethernet pairs (veth1a2b3c, vethABC123, etc.)
+	`^br-.*`,        // Linux bridges (br-abc123, etc.)
+	`^wlan\d+mon.*`, // Wireless monitor interfaces (wlan0mon, wlan0mon1, etc.)
+	`^virbr.*`,      // libvirt bridges (virbr0, virbr0-nic, etc.)
+	`^wwan.*`,       // Wireless WAN (wwan0, etc.)
+	`^wwp.*`,        // Wireless WAN alternative (wwp0s20f0u6c2, etc.)
+	`^usb.*`,        // USB network (usb0, usb1, etc.)
 }
 
 // NetworkStats represents network interface statistics
@@ -119,13 +119,13 @@ func (c *NetworkCollector) collectMock() []*models.Metric {
 
 	// Mock data for 2 interfaces (en0, en1)
 	interfaces := []struct {
-		name     string
-		rxBytes  uint64
-		rxPkts   uint64
-		rxErrs   uint64
-		txBytes  uint64
-		txPkts   uint64
-		txErrs   uint64
+		name    string
+		rxBytes uint64
+		rxPkts  uint64
+		rxErrs  uint64
+		txBytes uint64
+		txPkts  uint64
+		txErrs  uint64
 	}{
 		{"en0", 1000000, 10000, 0, 500000, 5000, 0},
 		{"en1", 2000000, 20000, 5, 1000000, 10000, 2},

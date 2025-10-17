@@ -252,7 +252,7 @@ func TestNoDuplicateUploads_NetworkRetry(t *testing.T) {
 		URL:        mockVM.URL + "/api/v1/import",
 		DeviceID:   "device-001",
 		Timeout:    30 * time.Second,
-		MaxRetries: intPtr(1),   // 1 retry
+		MaxRetries: intPtr(1),             // 1 retry
 		RetryDelay: 10 * time.Millisecond, // 10ms backoff
 		ChunkSize:  50,
 	})
@@ -1333,7 +1333,7 @@ func TestHealthEndpoint_FullIntegration(t *testing.T) {
 	defer cancel()
 
 	go checker.StartHTTPServer(ctx, ":0") // Use random port
-	time.Sleep(50 * time.Millisecond) // Give server time to start
+	time.Sleep(50 * time.Millisecond)     // Give server time to start
 
 	// Update components
 	checker.UpdateCollectorStatus("cpu", nil, 10)
@@ -2088,23 +2088,23 @@ func TestConfigWiring_WALCheckpointSize(t *testing.T) {
 // configuration is applied correctly.
 func TestConfigWiring_ClockSkewThreshold(t *testing.T) {
 	testCases := []struct {
-		name               string
-		thresholdMs        int
+		name                string
+		thresholdMs         int
 		expectedThresholdMs int
 	}{
 		{
-			name:               "Default",
-			thresholdMs:        0,
+			name:                "Default",
+			thresholdMs:         0,
 			expectedThresholdMs: 2000, // Default: 2000ms
 		},
 		{
-			name:               "Custom_5000ms",
-			thresholdMs:        5000,
+			name:                "Custom_5000ms",
+			thresholdMs:         5000,
 			expectedThresholdMs: 5000,
 		},
 		{
-			name:               "Custom_1000ms",
-			thresholdMs:        1000,
+			name:                "Custom_1000ms",
+			thresholdMs:         1000,
 			expectedThresholdMs: 1000,
 		},
 	}
@@ -2312,8 +2312,8 @@ func TestE2E_FullCollectionUploadCycle(t *testing.T) {
 
 	expectedNames := map[string]bool{
 		"cpu_temperature_celsius": true, // Metric name gets suffix added
-		"memory_used":              true,
-		"disk_io_bytes":            true,
+		"memory_used":             true,
+		"disk_io_bytes":           true,
 	}
 
 	for _, name := range receivedMetrics {

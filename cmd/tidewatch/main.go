@@ -173,7 +173,7 @@ func main() {
 			DeviceID:  cfg.Device.ID,
 			AuthToken: cfg.Remote.AuthToken,
 			// Set timeout explicitly to avoid default logic
-			Timeout:   30 * time.Second,
+			Timeout: 30 * time.Second,
 		}
 
 		// Apply retry configuration only if explicitly configured

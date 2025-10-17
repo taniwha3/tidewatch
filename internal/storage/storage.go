@@ -35,11 +35,11 @@ type Storage interface {
 
 // QueryOptions defines options for querying metrics
 type QueryOptions struct {
-	StartMs   int64  // Start timestamp in milliseconds (inclusive)
-	EndMs     int64  // End timestamp in milliseconds (inclusive)
-	DeviceID  string // Filter by device ID (empty = all devices)
+	StartMs    int64  // Start timestamp in milliseconds (inclusive)
+	EndMs      int64  // End timestamp in milliseconds (inclusive)
+	DeviceID   string // Filter by device ID (empty = all devices)
 	MetricName string // Filter by metric name (empty = all metrics)
-	Limit     int    // Maximum number of results (0 = no limit)
+	Limit      int    // Maximum number of results (0 = no limit)
 }
 
 // SQLiteStorage implements Storage using SQLite
@@ -72,12 +72,12 @@ func NewSQLiteStorage(dbPath string) (*SQLiteStorage, error) {
 
 	// Apply SQLite tuning PRAGMAs for ARM SBC
 	pragmas := []string{
-		"PRAGMA journal_mode=WAL",       // Write-ahead logging for better concurrency
-		"PRAGMA synchronous=NORMAL",     // Balance between performance and safety
-		"PRAGMA busy_timeout=10000",     // Wait up to 10s for locks
-		"PRAGMA temp_store=MEMORY",      // Use memory for temp tables
-		"PRAGMA cache_size=-64000",      // 64MB cache (negative = KB)
-		"PRAGMA mmap_size=268435456",    // 256MB memory-mapped I/O
+		"PRAGMA journal_mode=WAL",    // Write-ahead logging for better concurrency
+		"PRAGMA synchronous=NORMAL",  // Balance between performance and safety
+		"PRAGMA busy_timeout=10000",  // Wait up to 10s for locks
+		"PRAGMA temp_store=MEMORY",   // Use memory for temp tables
+		"PRAGMA cache_size=-64000",   // 64MB cache (negative = KB)
+		"PRAGMA mmap_size=268435456", // 256MB memory-mapped I/O
 	}
 
 	for _, pragma := range pragmas {
@@ -507,8 +507,8 @@ func (s *SQLiteStorage) StoreBatch(ctx context.Context, metrics []*models.Metric
 			metric.ValueText,
 			int(metric.ValueType),
 			metric.DeviceID,
-			0,          // uploaded = false
-			1,          // priority = normal
+			0, // uploaded = false
+			1, // priority = normal
 			sessionID,
 			dedupKey,
 			tagsJSON,

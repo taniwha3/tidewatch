@@ -745,57 +745,57 @@ func TestThresholds(t *testing.T) {
 
 func TestThresholdsFromUploadInterval(t *testing.T) {
 	tests := []struct {
-		name                   string
-		uploadInterval         time.Duration
-		expectedOK             int
-		expectedDegraded       int
-		expectedError          int
-		expectedPendingOK      int64
+		name                    string
+		uploadInterval          time.Duration
+		expectedOK              int
+		expectedDegraded        int
+		expectedError           int
+		expectedPendingOK       int64
 		expectedPendingDegraded int64
 	}{
 		{
-			name:                   "30s default interval",
-			uploadInterval:         30 * time.Second,
-			expectedOK:             60,   // 2× 30s
-			expectedDegraded:       300,  // 10× 30s
-			expectedError:          600,  // Always 10 minutes per M2 spec
-			expectedPendingOK:      5000,
+			name:                    "30s default interval",
+			uploadInterval:          30 * time.Second,
+			expectedOK:              60,  // 2× 30s
+			expectedDegraded:        300, // 10× 30s
+			expectedError:           600, // Always 10 minutes per M2 spec
+			expectedPendingOK:       5000,
 			expectedPendingDegraded: 10000,
 		},
 		{
-			name:                   "5m interval",
-			uploadInterval:         5 * time.Minute,
-			expectedOK:             600,  // 2× 5m = 10m
-			expectedDegraded:       3000, // 10× 5m = 50m
-			expectedError:          600,  // Always 10 minutes per M2 spec
-			expectedPendingOK:      5000,
+			name:                    "5m interval",
+			uploadInterval:          5 * time.Minute,
+			expectedOK:              600,  // 2× 5m = 10m
+			expectedDegraded:        3000, // 10× 5m = 50m
+			expectedError:           600,  // Always 10 minutes per M2 spec
+			expectedPendingOK:       5000,
 			expectedPendingDegraded: 10000,
 		},
 		{
-			name:                   "1m interval",
-			uploadInterval:         1 * time.Minute,
-			expectedOK:             120, // 2× 1m = 2m
-			expectedDegraded:       600, // 10× 1m = 10m
-			expectedError:          600, // Always 10 minutes per M2 spec
-			expectedPendingOK:      5000,
+			name:                    "1m interval",
+			uploadInterval:          1 * time.Minute,
+			expectedOK:              120, // 2× 1m = 2m
+			expectedDegraded:        600, // 10× 1m = 10m
+			expectedError:           600, // Always 10 minutes per M2 spec
+			expectedPendingOK:       5000,
 			expectedPendingDegraded: 10000,
 		},
 		{
-			name:                   "10s interval",
-			uploadInterval:         10 * time.Second,
-			expectedOK:             20,  // 2× 10s
-			expectedDegraded:       100, // 10× 10s
-			expectedError:          600, // Always 10 minutes per M2 spec
-			expectedPendingOK:      5000,
+			name:                    "10s interval",
+			uploadInterval:          10 * time.Second,
+			expectedOK:              20,  // 2× 10s
+			expectedDegraded:        100, // 10× 10s
+			expectedError:           600, // Always 10 minutes per M2 spec
+			expectedPendingOK:       5000,
 			expectedPendingDegraded: 10000,
 		},
 		{
-			name:                   "2m interval",
-			uploadInterval:         2 * time.Minute,
-			expectedOK:             240,  // 2× 2m = 4m
-			expectedDegraded:       1200, // 10× 2m = 20m
-			expectedError:          600,  // Always 10 minutes per M2 spec
-			expectedPendingOK:      5000,
+			name:                    "2m interval",
+			uploadInterval:          2 * time.Minute,
+			expectedOK:              240,  // 2× 2m = 4m
+			expectedDegraded:        1200, // 10× 2m = 20m
+			expectedError:           600,  // Always 10 minutes per M2 spec
+			expectedPendingOK:       5000,
 			expectedPendingDegraded: 10000,
 		},
 	}
