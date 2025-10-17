@@ -123,7 +123,12 @@ func main() {
 	defer walCancel()
 
 	// Start WAL checkpoint routine with configured interval and size threshold
-	walCheckpointInterval := cfg.Storage.WALCheckpointInterval()
+	walCheckpointInterval, err := cfg.Storage.WALCheckpointInterval()
+	if err != nil {
+		// This should never happen since Validate() already checked it
+		logger.Error("Invalid WAL checkpoint interval", slog.Any("error", err))
+		os.Exit(1)
+	}
 	walCheckpointSize := cfg.Storage.WALCheckpointSizeBytes()
 	cancelWAL := store.StartWALCheckpointRoutine(walCtx, logger, walCheckpointInterval, walCheckpointSize)
 	defer cancelWAL()
@@ -137,7 +142,12 @@ func main() {
 	logger.Info("Meta-metrics collector initialized")
 
 	// Initialize health checker with thresholds derived from upload interval
-	uploadInterval := cfg.Remote.UploadInterval()
+	uploadInterval, err := cfg.Remote.UploadInterval()
+	if err != nil {
+		// This should never happen since Validate() already checked it
+		logger.Error("Invalid upload interval", slog.Any("error", err))
+		os.Exit(1)
+	}
 	healthThresholds := health.ThresholdsFromUploadInterval(uploadInterval)
 
 	// Override clock skew threshold if configured
@@ -195,8 +205,20 @@ func main() {
 				}
 				uploaderCfg.MaxRetries = &maxRetries
 
-				uploaderCfg.RetryDelay = cfg.Remote.Retry.InitialBackoff()
-				uploaderCfg.MaxBackoff = cfg.Remote.Retry.MaxBackoff()
+				retryDelay, err := cfg.Remote.Retry.InitialBackoff()
+				if err != nil {
+					// This should never happen since Validate() already checked it
+					logger.Error("Invalid retry initial_backoff", slog.Any("error", err))
+					os.Exit(1)
+				}
+				maxBackoff, err := cfg.Remote.Retry.MaxBackoff()
+				if err != nil {
+					// This should never happen since Validate() already checked it
+					logger.Error("Invalid retry max_backoff", slog.Any("error", err))
+					os.Exit(1)
+				}
+				uploaderCfg.RetryDelay = retryDelay
+				uploaderCfg.MaxBackoff = maxBackoff
 				uploaderCfg.BackoffMultiplier = cfg.Remote.Retry.BackoffMultiplier
 
 				// JitterPercent: nil means use default (20), otherwise honor the value (even if 0)
@@ -289,10 +311,16 @@ func main() {
 
 	// Start upload loop (if remote enabled)
 	if cfg.Remote.Enabled {
+		uploadInterval, err = cfg.Remote.UploadInterval()
+		if err != nil {
+			// This should never happen since Validate() already checked it
+			logger.Error("Invalid upload interval", slog.Any("error", err))
+			os.Exit(1)
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			runUploadLoop(ctx, store, upload, cfg.Remote.UploadInterval(), cfg.Remote.GetBatchSize(), healthChecker, metricsCollector, logger)
+			runUploadLoop(ctx, store, upload, uploadInterval, cfg.Remote.GetBatchSize(), healthChecker, metricsCollector, logger)
 		}()
 	}
 
