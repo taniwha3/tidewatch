@@ -914,9 +914,10 @@ func normalizeStoragePath(storagePath string) string {
 			// file:///absolute/path -> /absolute/path
 			path = path[2:] // Remove two slashes, keep the third as leading /
 		} else if strings.HasPrefix(path, "//") {
-			// file://hostname/path - this is a network path, probably won't work for locking
-			// Just strip the // and hope for the best
-			path = path[2:]
+			// file://hostname/path - this is a UNC network path (e.g., //host/share/file.db)
+			// Preserve the // prefix so the lock file is created at the correct UNC location
+			// This ensures multiple instances accessing the same network database coordinate properly
+			// path remains as //hostname/path
 		}
 		// Now path is either /absolute or relative
 

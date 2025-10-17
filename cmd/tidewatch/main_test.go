@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -490,6 +491,113 @@ func TestConfigWiring_CustomBatchSizeVsDefault(t *testing.T) {
 	if len(mockUpload2.uploadedMetrics) != 2500 {
 		t.Errorf("Custom batch size: expected 2500 remaining metrics, got %d", len(mockUpload2.uploadedMetrics))
 	}
+}
+
+// TestNormalizeStoragePath_UNCPaths tests that UNC network paths are preserved
+func TestNormalizeStoragePath_UNCPaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "UNC path without query params",
+			input:    "file://host/share/metrics.db",
+			expected: "//host/share/metrics.db",
+		},
+		{
+			name:     "UNC path with query params",
+			input:    "file://host/share/metrics.db?cache=shared",
+			expected: "//host/share/metrics.db",
+		},
+		{
+			name:     "UNC path with subdirectory",
+			input:    "file://server/data/tidewatch/metrics.db",
+			expected: "//server/data/tidewatch/metrics.db",
+		},
+		{
+			name:     "UNC path with IP address",
+			input:    "file://192.168.1.100/share/metrics.db",
+			expected: "//192.168.1.100/share/metrics.db",
+		},
+		{
+			name:     "Local absolute path (three slashes)",
+			input:    "file:///var/lib/metrics.db",
+			expected: "/var/lib/metrics.db",
+		},
+		{
+			name:     "Local absolute path with query params",
+			input:    "file:///var/lib/metrics.db?cache=shared",
+			expected: "/var/lib/metrics.db",
+		},
+		{
+			name:     "Relative path",
+			input:    "file:data/metrics.db",
+			expected: filepath.Join(mustGetwd(), "data/metrics.db"),
+		},
+		{
+			name:     "Direct absolute path (no URI)",
+			input:    "/var/lib/metrics.db",
+			expected: "/var/lib/metrics.db",
+		},
+		{
+			name:     "Direct relative path (no URI)",
+			input:    "data/metrics.db",
+			expected: filepath.Join(mustGetwd(), "data/metrics.db"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeStoragePath(tt.input)
+			if result != tt.expected {
+				t.Errorf("normalizeStoragePath(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+
+			// Verify that UNC paths start with //
+			if strings.Contains(tt.name, "UNC") {
+				if !strings.HasPrefix(result, "//") {
+					t.Errorf("UNC path should start with //, got %q", result)
+				}
+			}
+		})
+	}
+}
+
+// TestNormalizeStoragePath_LockFileCoordination tests that UNC paths create
+// lock files in the correct network location for proper coordination
+func TestNormalizeStoragePath_LockFileCoordination(t *testing.T) {
+	// Simulate two instances with the same UNC database path
+	dbPath := "file://server/share/metrics.db"
+
+	// Both instances should normalize to the same path
+	normalized1 := normalizeStoragePath(dbPath)
+	normalized2 := normalizeStoragePath(dbPath)
+
+	if normalized1 != normalized2 {
+		t.Errorf("Same UNC path should normalize to same result: %q != %q", normalized1, normalized2)
+	}
+
+	// The normalized path should be a UNC path
+	expected := "//server/share/metrics.db"
+	if normalized1 != expected {
+		t.Errorf("Expected UNC path %q, got %q", expected, normalized1)
+	}
+
+	// Verify the lock file would be created at the UNC location
+	// (not in a local relative path like "server/share/metrics.db.lock")
+	if !strings.HasPrefix(normalized1, "//") {
+		t.Errorf("UNC path must start with // to ensure lock file coordination, got %q", normalized1)
+	}
+}
+
+// mustGetwd is a helper that returns the current working directory or fails the test
+func mustGetwd() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		panic(fmt.Sprintf("failed to get working directory: %v", err))
+	}
+	return wd
 }
 
 func TestMain(m *testing.M) {
