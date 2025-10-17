@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### Configuration Validation (Breaking Change)
+- **Hard-fail validation for invalid timing values**: All timing configuration values (intervals, backoff durations) are now strictly validated at startup
+- Invalid or non-positive durations cause immediate startup failure with clear error messages
+- Prevents silent misconfigurations that could lead to:
+  - Negative retry backoffs causing immediate retry hammering
+  - Zero intervals causing `time.NewTicker` panics
+  - Silent fallbacks to default values going unnoticed in production
+
+**Breaking Change**: Configurations with invalid timing values (negative, zero, or malformed durations) that previously fell back to defaults will now fail to start. Affected fields:
+- `storage.wal_checkpoint_interval`
+- `remote.upload_interval`
+- `remote.retry.initial_backoff`
+- `remote.retry.max_backoff`
+- `metrics[].interval`
+
+**Migration**: Review your configuration files and ensure all timing values are positive durations (e.g., `30s`, `1m`, `1h`). See [Configuration Validation](#timing-value-validation) in README for details.
+
 ## [3.0.0] - 2025-01-XX
 
 ### Added - Milestone 3: Debian Packaging

@@ -227,22 +227,60 @@ device:
   id: belabox-001                          # Unique device identifier
 
 storage:
-  path: /var/lib/tidewatch/metrics.db  # SQLite database path
+  path: /var/lib/tidewatch/metrics.db      # SQLite database path
+  wal_checkpoint_interval: 1h              # WAL checkpoint interval (must be positive)
+  wal_checkpoint_size_mb: 64               # WAL checkpoint size threshold
 
 remote:
   url: http://example.com/api/metrics      # Remote endpoint URL
   enabled: true                            # Enable remote uploads
-  upload_interval: 30s                     # Upload interval
+  upload_interval: 30s                     # Upload interval (must be positive)
+  retry:
+    enabled: true
+    max_attempts: 3                        # Total attempts (initial + retries)
+    initial_backoff: 1s                    # Initial retry delay (must be positive)
+    max_backoff: 30s                       # Max retry delay (must be positive)
+    backoff_multiplier: 2.0
+    jitter_percent: 20
 
 metrics:
   - name: cpu.temperature
-    interval: 30s                          # Collection interval
+    interval: 30s                          # Collection interval (must be positive)
     enabled: true
 
   - name: srt.packet_loss
     interval: 5s
     enabled: true
 ```
+
+### Timing Value Validation
+
+All timing configuration values are strictly validated at startup:
+
+- **Duration values must be positive** (e.g., `30s`, `1m`, `1h`)
+- **Invalid values cause immediate failure** with a clear error message
+- **No silent fallbacks** - misconfigurations are caught early
+
+Examples of **invalid** configurations that will cause startup failure:
+```yaml
+storage:
+  wal_checkpoint_interval: -1h     # ❌ Negative durations not allowed
+
+remote:
+  upload_interval: 0s              # ❌ Zero durations not allowed
+  retry:
+    initial_backoff: not-a-time    # ❌ Invalid duration format
+```
+
+This hard-fail behavior prevents:
+- Negative retry backoffs that cause immediate retry hammering
+- Zero intervals that cause `time.NewTicker` panics
+- Silent misconfigurations that go unnoticed in production
+
+For complete configuration examples, see:
+- [configs/config.yaml](configs/config.yaml) - Production configuration
+- [configs/config.dev.yaml](configs/config.dev.yaml) - Development configuration
+- [configs/config.prod.yaml](configs/config.prod.yaml) - Production template
 
 ## Testing
 
