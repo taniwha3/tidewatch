@@ -114,8 +114,28 @@ func TestSanitizeMetricName_TemperatureSuffix(t *testing.T) {
 		{"cpu.temperature", "cpu_temperature_celsius"},
 		{"thermal.zone.temperature", "thermal_zone_temperature_celsius"},
 		{"temperature", "temperature_celsius"},
+		// Regression test: "temp" should also trigger _celsius suffix when it's a separate word
+		{"thermal.zone_temp", "thermal_zone_temp_celsius"},
+		{"cpu.temp", "cpu_temp_celsius"},
+		{"ambient.temp", "ambient_temp_celsius"},
+		{"temp", "temp_celsius"},
+		{"temp.sensor", "temp_sensor_celsius"},
 		// Should not double-add
 		{"cpu_temperature_celsius", "cpu_temperature_celsius"},
+		{"thermal_zone_temp_celsius", "thermal_zone_temp_celsius"},
+		// Regression test: words containing "temp" should NOT trigger _celsius
+		{"login.attempts", "login_attempts"},
+		{"http.attempt", "http_attempt"},
+		{"service.login.attempts", "service_login_attempts"},
+		{"contempt.score", "contempt_score"},
+		{"temptation.level", "temptation_level"},
+		{"contemporary.metric", "contemporary_metric"},
+		// Regression test: "template" and "tempest" should NOT trigger _celsius
+		{"render.template_duration", "render_template_duration"},
+		{"http.template_latency", "http_template_latency"},
+		{"template.render.time", "template_render_time"},
+		{"weather.tempest.severity", "weather_tempest_severity"},
+		{"tempest.wind.speed", "tempest_wind_speed"},
 	}
 
 	for _, tt := range tests {

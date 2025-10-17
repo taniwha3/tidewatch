@@ -37,7 +37,22 @@ func sanitizeMetricName(name string) string {
 	}
 
 	// Add unit suffixes if missing (only for non-counters)
-	if strings.Contains(name, "temperature") && !strings.HasSuffix(safe, "_celsius") {
+	// Match "temperature" or standalone "temp" (with word boundaries on both sides)
+	// Word boundaries are: dots, underscores, start/end of string
+	// This avoids matching "attempt", "contempt", "template", "tempest", etc.
+	lowerName := strings.ToLower(name)
+	isTemp := strings.Contains(lowerName, "temperature") ||
+		strings.Contains(lowerName, ".temp.") ||
+		strings.Contains(lowerName, ".temp_") ||
+		strings.Contains(lowerName, "_temp.") ||
+		strings.Contains(lowerName, "_temp_") ||
+		strings.HasPrefix(lowerName, "temp.") ||
+		strings.HasPrefix(lowerName, "temp_") ||
+		strings.HasSuffix(lowerName, ".temp") ||
+		strings.HasSuffix(lowerName, "_temp") ||
+		lowerName == "temp"
+
+	if isTemp && !strings.HasSuffix(safe, "_celsius") {
 		safe += "_celsius"
 	}
 
