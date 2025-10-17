@@ -268,6 +268,15 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Validate jitter_percent if configured
+	// Guard against out-of-range values: negative or >100 can drive backoff below zero or explode it
+	if c.Remote.Retry.JitterPercent != nil {
+		jitter := *c.Remote.Retry.JitterPercent
+		if jitter < 0 || jitter > 100 {
+			return fmt.Errorf("retry.jitter_percent must be between 0 and 100, got %d", jitter)
+		}
+	}
+
 	// Validate metric intervals
 	for _, m := range c.Metrics {
 		if m.Enabled {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1306,6 +1307,106 @@ metrics:
 			if tt.expectError {
 				if err == nil {
 					t.Error("Expected error but got none")
+				} else if tt.errorMsg != "" && !strings.Contains(err.Error(), tt.errorMsg) {
+					t.Errorf("Expected error containing '%s', got '%s'", tt.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestInvalidJitterPercentValidation tests that jitter_percent outside 0-100 range
+// is rejected during validation to prevent negative backoff or exploding delays.
+func TestInvalidJitterPercentValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name        string
+		jitter      int
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "valid jitter 0 (no jitter)",
+			jitter:      0,
+			expectError: false,
+		},
+		{
+			name:        "valid jitter 50 (moderate)",
+			jitter:      50,
+			expectError: false,
+		},
+		{
+			name:        "valid jitter 100 (maximum)",
+			jitter:      100,
+			expectError: false,
+		},
+		{
+			name:        "negative jitter",
+			jitter:      -10,
+			expectError: true,
+			errorMsg:    "jitter_percent must be between 0 and 100",
+		},
+		{
+			name:        "jitter above 100",
+			jitter:      150,
+			expectError: true,
+			errorMsg:    "jitter_percent must be between 0 and 100",
+		},
+		{
+			name:        "very large jitter",
+			jitter:      500,
+			expectError: true,
+			errorMsg:    "jitter_percent must be between 0 and 100",
+		},
+		{
+			name:        "barely negative jitter",
+			jitter:      -1,
+			expectError: true,
+			errorMsg:    "jitter_percent must be between 0 and 100",
+		},
+		{
+			name:        "barely over 100",
+			jitter:      101,
+			expectError: true,
+			errorMsg:    "jitter_percent must be between 0 and 100",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			yamlContent := `
+device:
+  id: test-device-001
+
+storage:
+  path: /tmp/test.db
+
+remote:
+  url: http://localhost:8428/api/v1/import
+  enabled: true
+  retry:
+    jitter_percent: ` + strconv.Itoa(tt.jitter) + `
+
+metrics:
+  - name: cpu.usage
+    interval: 30s
+    enabled: true
+`
+
+			configPath := filepath.Join(tmpDir, tt.name+".yaml")
+			if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+				t.Fatalf("Failed to write test config: %v", err)
+			}
+
+			_, err := Load(configPath)
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got none - invalid jitter_percent should be caught during validation")
 				} else if tt.errorMsg != "" && !strings.Contains(err.Error(), tt.errorMsg) {
 					t.Errorf("Expected error containing '%s', got '%s'", tt.errorMsg, err.Error())
 				}
