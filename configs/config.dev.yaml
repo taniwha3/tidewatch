@@ -6,22 +6,22 @@ device:
 
 storage:
   path: ./data/metrics/metrics.db  # Local directory for development
-  wal_checkpoint_interval: 5m      # More frequent for testing
+  wal_checkpoint_interval: 5m      # More frequent for testing (must be positive)
   wal_checkpoint_size_mb: 8        # Smaller threshold for testing
 
 remote:
   url: http://localhost:8428/api/v1/import  # VictoriaMetrics import endpoint
   enabled: true
-  upload_interval: 10s             # Faster uploads for testing
+  upload_interval: 10s             # Faster uploads for testing (must be positive)
   batch_size: 1000                 # Smaller batches
   chunk_size: 50                   # Metrics per chunk upload
   retry:
     enabled: true
-    max_attempts: 3
-    initial_backoff: 1s
-    max_backoff: 30s
-    backoff_multiplier: 2.0
-    jitter_percent: 20             # ±20% jitter
+    max_attempts: 3                # Total attempts (initial + retries)
+    initial_backoff: 1s            # Initial retry delay (must be positive)
+    max_backoff: 30s               # Maximum retry delay (must be positive)
+    backoff_multiplier: 2.0        # Exponential backoff multiplier
+    jitter_percent: 20             # ±20% jitter to prevent thundering herd
 
 monitoring:
   clock_skew_url: http://localhost:8428/health  # Separate URL for clock skew check

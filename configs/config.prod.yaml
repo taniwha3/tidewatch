@@ -11,6 +11,7 @@ storage:
   path: /var/lib/tidewatch/metrics.db
 
   # WAL checkpoint settings for optimal performance
+  # Note: All timing values must be positive durations (e.g., 1h, 30m)
   wal_checkpoint_interval: 1h
   wal_checkpoint_size_mb: 64
 
@@ -23,6 +24,7 @@ remote:
   enabled: true
 
   # Upload every 30 seconds (recommended for production)
+  # Note: Must be a positive duration (e.g., 30s, 1m)
   upload_interval: 30s
 
   # Batch processing settings
@@ -30,13 +32,14 @@ remote:
   chunk_size: 50
 
   # Retry configuration with exponential backoff
+  # Note: initial_backoff and max_backoff must be positive durations
   retry:
     enabled: true
-    max_attempts: 3
-    initial_backoff: 1s
-    max_backoff: 30s
-    backoff_multiplier: 2.0
-    jitter_percent: 20
+    max_attempts: 3                  # Total attempts (initial + retries)
+    initial_backoff: 1s              # Initial retry delay (must be positive)
+    max_backoff: 30s                 # Maximum retry delay (must be positive)
+    backoff_multiplier: 2.0          # Exponential backoff multiplier
+    jitter_percent: 20               # ±20% jitter to prevent thundering herd
 
 monitoring:
   # Clock skew detection endpoint
