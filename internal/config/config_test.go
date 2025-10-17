@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -268,7 +269,28 @@ func TestWALCheckpointInterval(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.config.WALCheckpointInterval()
+			result, err := tt.config.WALCheckpointInterval()
+
+			// Negative and zero values should now return errors
+			if strings.Contains(tt.name, "negative") || strings.Contains(tt.name, "zero") {
+				if err == nil {
+					t.Error("Expected error for non-positive duration, got none")
+				}
+				return
+			}
+
+			// Invalid values should return error
+			if strings.Contains(tt.name, "invalid") {
+				if err == nil {
+					t.Error("Expected error for invalid duration string, got none")
+				}
+				return
+			}
+
+			// Valid values should not error
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
 			if result != tt.expected {
 				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
@@ -370,18 +392,120 @@ func TestRetryConfigParsing(t *testing.T) {
 			expectedInitial: 1 * time.Second,
 			expectedMax:     30 * time.Second,
 		},
+		{
+			name: "negative initial backoff uses default",
+			config: RetryConfig{
+				Enabled:           boolPtr(true),
+				MaxAttempts:       3,
+				InitialBackoffStr: "-1s",
+				MaxBackoffStr:     "60s",
+				BackoffMultiplier: 2.0,
+				JitterPercent:     intPtr(10),
+			},
+			expectedInitial: 1 * time.Second,
+			expectedMax:     60 * time.Second,
+		},
+		{
+			name: "negative max backoff uses default",
+			config: RetryConfig{
+				Enabled:           boolPtr(true),
+				MaxAttempts:       3,
+				InitialBackoffStr: "2s",
+				MaxBackoffStr:     "-30s",
+				BackoffMultiplier: 2.0,
+				JitterPercent:     intPtr(10),
+			},
+			expectedInitial: 2 * time.Second,
+			expectedMax:     30 * time.Second,
+		},
+		{
+			name: "zero initial backoff uses default",
+			config: RetryConfig{
+				Enabled:           boolPtr(true),
+				MaxAttempts:       3,
+				InitialBackoffStr: "0s",
+				MaxBackoffStr:     "60s",
+				BackoffMultiplier: 2.0,
+				JitterPercent:     intPtr(10),
+			},
+			expectedInitial: 1 * time.Second,
+			expectedMax:     60 * time.Second,
+		},
+		{
+			name: "zero max backoff uses default",
+			config: RetryConfig{
+				Enabled:           boolPtr(true),
+				MaxAttempts:       3,
+				InitialBackoffStr: "2s",
+				MaxBackoffStr:     "0s",
+				BackoffMultiplier: 2.0,
+				JitterPercent:     intPtr(10),
+			},
+			expectedInitial: 2 * time.Second,
+			expectedMax:     30 * time.Second,
+		},
+		{
+			name: "both negative backoffs use defaults",
+			config: RetryConfig{
+				Enabled:           boolPtr(true),
+				MaxAttempts:       3,
+				InitialBackoffStr: "-5s",
+				MaxBackoffStr:     "-60s",
+				BackoffMultiplier: 2.0,
+				JitterPercent:     intPtr(10),
+			},
+			expectedInitial: 1 * time.Second,
+			expectedMax:     30 * time.Second,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			initial := tt.config.InitialBackoff()
-			max := tt.config.MaxBackoff()
+			initial, initialErr := tt.config.InitialBackoff()
+			max, maxErr := tt.config.MaxBackoff()
 
-			if initial != tt.expectedInitial {
-				t.Errorf("InitialBackoff: expected %v, got %v", tt.expectedInitial, initial)
+			// Negative, zero, and invalid values should return errors
+			expectInitialError := strings.Contains(tt.name, "negative initial") ||
+				strings.Contains(tt.name, "zero initial") ||
+				strings.Contains(tt.name, "both negative") ||
+				strings.Contains(tt.name, "invalid")
+			expectMaxError := strings.Contains(tt.name, "negative max") ||
+				strings.Contains(tt.name, "zero max") ||
+				strings.Contains(tt.name, "both negative") ||
+				strings.Contains(tt.name, "invalid")
+
+			if expectInitialError {
+				if initialErr == nil {
+					t.Error("InitialBackoff: expected error for invalid/non-positive duration, got none")
+				}
+			} else {
+				if initialErr != nil {
+					t.Errorf("InitialBackoff: unexpected error: %v", initialErr)
+				}
+				if initial != tt.expectedInitial {
+					t.Errorf("InitialBackoff: expected %v, got %v", tt.expectedInitial, initial)
+				}
+				// Critical: Verify that returned durations are positive
+				if initial <= 0 {
+					t.Errorf("InitialBackoff returned non-positive duration: %v", initial)
+				}
 			}
-			if max != tt.expectedMax {
-				t.Errorf("MaxBackoff: expected %v, got %v", tt.expectedMax, max)
+
+			if expectMaxError {
+				if maxErr == nil {
+					t.Error("MaxBackoff: expected error for invalid/non-positive duration, got none")
+				}
+			} else {
+				if maxErr != nil {
+					t.Errorf("MaxBackoff: unexpected error: %v", maxErr)
+				}
+				if max != tt.expectedMax {
+					t.Errorf("MaxBackoff: expected %v, got %v", tt.expectedMax, max)
+				}
+				// Critical: Verify that returned durations are positive
+				if max <= 0 {
+					t.Errorf("MaxBackoff returned non-positive duration: %v", max)
+				}
 			}
 		})
 	}
@@ -522,8 +646,12 @@ metrics:
 	if cfg.Storage.WALCheckpointSizeMB != 128 {
 		t.Errorf("Expected WAL size 128, got %d", cfg.Storage.WALCheckpointSizeMB)
 	}
-	if cfg.Storage.WALCheckpointInterval() != 30*time.Minute {
-		t.Errorf("Expected parsed interval 30m, got %v", cfg.Storage.WALCheckpointInterval())
+	interval, err := cfg.Storage.WALCheckpointInterval()
+	if err != nil {
+		t.Fatalf("Expected valid interval, got error: %v", err)
+	}
+	if interval != 30*time.Minute {
+		t.Errorf("Expected parsed interval 30m, got %v", interval)
 	}
 	if cfg.Storage.WALCheckpointSizeBytes() != 128*1024*1024 {
 		t.Errorf("Expected parsed size 128MB, got %d", cfg.Storage.WALCheckpointSizeBytes())
@@ -553,11 +681,19 @@ metrics:
 	if cfg.Remote.Retry.MaxAttempts != 5 {
 		t.Errorf("Expected max attempts 5, got %d", cfg.Remote.Retry.MaxAttempts)
 	}
-	if cfg.Remote.Retry.InitialBackoff() != 2*time.Second {
-		t.Errorf("Expected initial backoff 2s, got %v", cfg.Remote.Retry.InitialBackoff())
+	initialBackoff, err := cfg.Remote.Retry.InitialBackoff()
+	if err != nil {
+		t.Fatalf("Expected valid initial_backoff, got error: %v", err)
 	}
-	if cfg.Remote.Retry.MaxBackoff() != 60*time.Second {
-		t.Errorf("Expected max backoff 60s, got %v", cfg.Remote.Retry.MaxBackoff())
+	if initialBackoff != 2*time.Second {
+		t.Errorf("Expected initial backoff 2s, got %v", initialBackoff)
+	}
+	maxBackoff, err := cfg.Remote.Retry.MaxBackoff()
+	if err != nil {
+		t.Fatalf("Expected valid max_backoff, got error: %v", err)
+	}
+	if maxBackoff != 60*time.Second {
+		t.Errorf("Expected max backoff 60s, got %v", maxBackoff)
 	}
 
 	// Test monitoring config
@@ -659,11 +795,19 @@ metrics:
 	if cfg.Remote.Retry.MaxAttempts != 5 {
 		t.Errorf("Expected max_attempts 5, got %d", cfg.Remote.Retry.MaxAttempts)
 	}
-	if cfg.Remote.Retry.InitialBackoff() != 2*time.Second {
-		t.Errorf("Expected initial_backoff 2s, got %v", cfg.Remote.Retry.InitialBackoff())
+	initialBackoff2, err := cfg.Remote.Retry.InitialBackoff()
+	if err != nil {
+		t.Fatalf("Expected valid initial_backoff, got error: %v", err)
 	}
-	if cfg.Remote.Retry.MaxBackoff() != 60*time.Second {
-		t.Errorf("Expected max_backoff 60s, got %v", cfg.Remote.Retry.MaxBackoff())
+	if initialBackoff2 != 2*time.Second {
+		t.Errorf("Expected initial_backoff 2s, got %v", initialBackoff2)
+	}
+	maxBackoff2, err := cfg.Remote.Retry.MaxBackoff()
+	if err != nil {
+		t.Fatalf("Expected valid max_backoff, got error: %v", err)
+	}
+	if maxBackoff2 != 60*time.Second {
+		t.Errorf("Expected max_backoff 60s, got %v", maxBackoff2)
 	}
 	if cfg.Remote.Retry.BackoffMultiplier != 2.0 {
 		t.Errorf("Expected backoff_multiplier 2.0, got %f", cfg.Remote.Retry.BackoffMultiplier)
@@ -893,7 +1037,20 @@ func TestUploadInterval(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.config.UploadInterval()
+			result, err := tt.config.UploadInterval()
+
+			// Negative, zero, and invalid values should now return errors
+			if strings.Contains(tt.name, "negative") || strings.Contains(tt.name, "zero") || strings.Contains(tt.name, "invalid") {
+				if err == nil {
+					t.Error("Expected error for invalid/non-positive duration, got none")
+				}
+				return
+			}
+
+			// Valid values should not error
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
 			if result != tt.expected {
 				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
@@ -901,6 +1058,193 @@ func TestUploadInterval(t *testing.T) {
 			// This would panic if interval <= 0
 			ticker := time.NewTicker(result)
 			ticker.Stop()
+		})
+	}
+}
+
+// TestInvalidTimingValuesFailValidation tests that invalid timing values cause config.Load() to fail
+func TestInvalidTimingValuesFailValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name        string
+		yamlContent string
+		errorMsg    string
+	}{
+		{
+			name: "negative WAL checkpoint interval",
+			yamlContent: `
+device:
+  id: test-device
+storage:
+  path: /tmp/test.db
+  wal_checkpoint_interval: -1h
+remote:
+  url: http://localhost:8428/api/v1/import
+  enabled: true
+metrics:
+  - name: cpu.usage
+    interval: 30s
+    enabled: true
+`,
+			errorMsg: "wal_checkpoint_interval must be positive",
+		},
+		{
+			name: "invalid upload interval",
+			yamlContent: `
+device:
+  id: test-device
+storage:
+  path: /tmp/test.db
+remote:
+  url: http://localhost:8428/api/v1/import
+  enabled: true
+  upload_interval: not-a-duration
+metrics:
+  - name: cpu.usage
+    interval: 30s
+    enabled: true
+`,
+			errorMsg: "invalid remote.upload_interval",
+		},
+		{
+			name: "negative initial backoff",
+			yamlContent: `
+device:
+  id: test-device
+storage:
+  path: /tmp/test.db
+remote:
+  url: http://localhost:8428/api/v1/import
+  enabled: true
+  retry:
+    initial_backoff: -5s
+metrics:
+  - name: cpu.usage
+    interval: 30s
+    enabled: true
+`,
+			errorMsg: "retry.initial_backoff must be positive",
+		},
+		{
+			name: "zero max backoff",
+			yamlContent: `
+device:
+  id: test-device
+storage:
+  path: /tmp/test.db
+remote:
+  url: http://localhost:8428/api/v1/import
+  enabled: true
+  retry:
+    max_backoff: 0s
+metrics:
+  - name: cpu.usage
+    interval: 30s
+    enabled: true
+`,
+			errorMsg: "retry.max_backoff must be positive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath := filepath.Join(tmpDir, tt.name+".yaml")
+			if err := os.WriteFile(configPath, []byte(tt.yamlContent), 0644); err != nil {
+				t.Fatalf("Failed to write test config: %v", err)
+			}
+
+			_, err := Load(configPath)
+			if err == nil {
+				t.Fatal("Expected error but got none")
+			}
+			if !strings.Contains(err.Error(), tt.errorMsg) {
+				t.Errorf("Expected error containing '%s', got '%s'", tt.errorMsg, err.Error())
+			}
+		})
+	}
+}
+
+// TestInvalidTimingValuesCheckedEvenWhenDisabled tests that invalid timing values
+// are caught during validation even when the feature is disabled (e.g., remote.enabled: false).
+// This prevents runtime crashes when code calls timing methods before checking enabled flags.
+func TestInvalidTimingValuesCheckedEvenWhenDisabled(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name        string
+		yamlContent string
+		errorMsg    string
+	}{
+		{
+			name: "disabled remote with zero upload interval",
+			yamlContent: `
+device:
+  id: test-device
+storage:
+  path: /tmp/test.db
+remote:
+  url: http://localhost:8428/api/v1/import
+  enabled: false
+  upload_interval: 0s
+metrics:
+  - name: cpu.usage
+    interval: 30s
+    enabled: true
+`,
+			errorMsg: "remote.upload_interval must be positive",
+		},
+		{
+			name: "disabled remote with negative upload interval",
+			yamlContent: `
+device:
+  id: test-device
+storage:
+  path: /tmp/test.db
+remote:
+  enabled: false
+  upload_interval: -30s
+metrics:
+  - name: cpu.usage
+    interval: 30s
+    enabled: true
+`,
+			errorMsg: "remote.upload_interval must be positive",
+		},
+		{
+			name: "disabled remote with invalid retry timing",
+			yamlContent: `
+device:
+  id: test-device
+storage:
+  path: /tmp/test.db
+remote:
+  enabled: false
+  retry:
+    initial_backoff: 0s
+metrics:
+  - name: cpu.usage
+    interval: 30s
+    enabled: true
+`,
+			errorMsg: "retry.initial_backoff must be positive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath := filepath.Join(tmpDir, tt.name+".yaml")
+			if err := os.WriteFile(configPath, []byte(tt.yamlContent), 0644); err != nil {
+				t.Fatalf("Failed to write test config: %v", err)
+			}
+
+			_, err := Load(configPath)
+			if err == nil {
+				t.Fatal("Expected error but got none - invalid timing value should be caught during validation")
+			}
+			if !strings.Contains(err.Error(), tt.errorMsg) {
+				t.Errorf("Expected error containing '%s', got '%s'", tt.errorMsg, err.Error())
+			}
 		})
 	}
 }
@@ -962,6 +1306,99 @@ metrics:
 			if tt.expectError {
 				if err == nil {
 					t.Error("Expected error but got none")
+				} else if tt.errorMsg != "" && !strings.Contains(err.Error(), tt.errorMsg) {
+					t.Errorf("Expected error containing '%s', got '%s'", tt.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestInvalidBackoffMultiplierValidation tests that backoff_multiplier < 1.0
+// is rejected during validation to prevent math.Pow from yielding zero/negative delays.
+func TestInvalidBackoffMultiplierValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name        string
+		multiplier  float64
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "valid multiplier 2.0",
+			multiplier:  2.0,
+			expectError: false,
+		},
+		{
+			name:        "valid multiplier 1.0 (minimum)",
+			multiplier:  1.0,
+			expectError: false,
+		},
+		{
+			name:        "valid multiplier 1.5",
+			multiplier:  1.5,
+			expectError: false,
+		},
+		{
+			name:        "zero multiplier (treated as not configured)",
+			multiplier:  0,
+			expectError: false,
+		},
+		{
+			name:        "negative multiplier",
+			multiplier:  -1.0,
+			expectError: true,
+			errorMsg:    "backoff_multiplier must be >= 1.0",
+		},
+		{
+			name:        "fractional multiplier less than 1",
+			multiplier:  0.5,
+			expectError: true,
+			errorMsg:    "backoff_multiplier must be >= 1.0",
+		},
+		{
+			name:        "very small positive multiplier",
+			multiplier:  0.1,
+			expectError: true,
+			errorMsg:    "backoff_multiplier must be >= 1.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			yamlContent := `
+device:
+  id: test-device-001
+
+storage:
+  path: /tmp/test.db
+
+remote:
+  url: http://localhost:8428/api/v1/import
+  enabled: true
+  retry:
+    backoff_multiplier: ` + strings.TrimSpace(strings.TrimRight(fmt.Sprintf("%v", tt.multiplier), "0")) + `
+
+metrics:
+  - name: cpu.usage
+    interval: 30s
+    enabled: true
+`
+
+			configPath := filepath.Join(tmpDir, tt.name+".yaml")
+			if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+				t.Fatalf("Failed to write test config: %v", err)
+			}
+
+			_, err := Load(configPath)
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got none - invalid backoff_multiplier should be caught during validation")
 				} else if tt.errorMsg != "" && !strings.Contains(err.Error(), tt.errorMsg) {
 					t.Errorf("Expected error containing '%s', got '%s'", tt.errorMsg, err.Error())
 				}

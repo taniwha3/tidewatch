@@ -32,21 +32,21 @@ type StorageConfig struct {
 }
 
 // WALCheckpointInterval parses the checkpoint interval string to time.Duration
-// Returns default of 1 hour if not configured or if duration is non-positive
-// Non-positive durations are rejected to prevent panic in time.NewTicker
-func (s *StorageConfig) WALCheckpointInterval() time.Duration {
+// Returns default of 1 hour if not configured
+// Returns error if duration string is invalid or non-positive
+func (s *StorageConfig) WALCheckpointInterval() (time.Duration, error) {
 	if s.WALCheckpointIntervalStr == "" {
-		return 1 * time.Hour
+		return 1 * time.Hour, nil
 	}
 	duration, err := time.ParseDuration(s.WALCheckpointIntervalStr)
 	if err != nil {
-		return 1 * time.Hour
+		return 0, fmt.Errorf("invalid wal_checkpoint_interval '%s': %w", s.WALCheckpointIntervalStr, err)
 	}
 	// Guard against non-positive intervals to prevent panic in time.NewTicker
 	if duration <= 0 {
-		return 1 * time.Hour
+		return 0, fmt.Errorf("wal_checkpoint_interval must be positive, got %v", duration)
 	}
-	return duration
+	return duration, nil
 }
 
 // WALCheckpointSizeBytes returns the checkpoint size threshold in bytes
@@ -69,27 +69,39 @@ type RetryConfig struct {
 }
 
 // InitialBackoff parses the initial backoff string to time.Duration
-func (r *RetryConfig) InitialBackoff() time.Duration {
+// Returns default of 1s if not configured
+// Returns error if duration string is invalid or non-positive
+func (r *RetryConfig) InitialBackoff() (time.Duration, error) {
 	if r.InitialBackoffStr == "" {
-		return 1 * time.Second
+		return 1 * time.Second, nil
 	}
 	duration, err := time.ParseDuration(r.InitialBackoffStr)
 	if err != nil {
-		return 1 * time.Second
+		return 0, fmt.Errorf("invalid retry.initial_backoff '%s': %w", r.InitialBackoffStr, err)
 	}
-	return duration
+	// Guard against non-positive durations: time.After with negative duration fires immediately
+	if duration <= 0 {
+		return 0, fmt.Errorf("retry.initial_backoff must be positive, got %v", duration)
+	}
+	return duration, nil
 }
 
 // MaxBackoff parses the max backoff string to time.Duration
-func (r *RetryConfig) MaxBackoff() time.Duration {
+// Returns default of 30s if not configured
+// Returns error if duration string is invalid or non-positive
+func (r *RetryConfig) MaxBackoff() (time.Duration, error) {
 	if r.MaxBackoffStr == "" {
-		return 30 * time.Second
+		return 30 * time.Second, nil
 	}
 	duration, err := time.ParseDuration(r.MaxBackoffStr)
 	if err != nil {
-		return 30 * time.Second
+		return 0, fmt.Errorf("invalid retry.max_backoff '%s': %w", r.MaxBackoffStr, err)
 	}
-	return duration
+	// Guard against non-positive durations: time.After with negative duration fires immediately
+	if duration <= 0 {
+		return 0, fmt.Errorf("retry.max_backoff must be positive, got %v", duration)
+	}
+	return duration, nil
 }
 
 // RemoteConfig contains remote endpoint settings
@@ -135,21 +147,21 @@ type LoggingConfig struct {
 }
 
 // UploadInterval parses the upload interval string to time.Duration
-// Returns default of 30s if not configured or if duration is non-positive
-// Non-positive durations are rejected to prevent panic in time.NewTicker
-func (r *RemoteConfig) UploadInterval() time.Duration {
+// Returns default of 30s if not configured
+// Returns error if duration string is invalid or non-positive
+func (r *RemoteConfig) UploadInterval() (time.Duration, error) {
 	if r.UploadIntervalStr == "" {
-		return 30 * time.Second
+		return 30 * time.Second, nil
 	}
 	duration, err := time.ParseDuration(r.UploadIntervalStr)
 	if err != nil {
-		return 30 * time.Second
+		return 0, fmt.Errorf("invalid remote.upload_interval '%s': %w", r.UploadIntervalStr, err)
 	}
 	// Guard against non-positive intervals to prevent panic in time.NewTicker
 	if duration <= 0 {
-		return 30 * time.Second
+		return 0, fmt.Errorf("remote.upload_interval must be positive, got %v", duration)
 	}
-	return duration
+	return duration, nil
 }
 
 // MetricConfig defines a metric to collect
@@ -223,6 +235,37 @@ func (c *Config) Validate() error {
 	}
 	if c.Remote.Enabled && c.Remote.URL == "" {
 		return fmt.Errorf("remote.url is required when remote is enabled")
+	}
+
+	// Validate storage timing values
+	if _, err := c.Storage.WALCheckpointInterval(); err != nil {
+		return err
+	}
+
+	// Validate remote timing values (always validate, even if remote is disabled)
+	// This prevents runtime crashes when code calls these methods before checking enabled flag
+	if _, err := c.Remote.UploadInterval(); err != nil {
+		return err
+	}
+
+	// Validate retry timing values if configured
+	if c.Remote.Retry.InitialBackoffStr != "" {
+		if _, err := c.Remote.Retry.InitialBackoff(); err != nil {
+			return err
+		}
+	}
+	if c.Remote.Retry.MaxBackoffStr != "" {
+		if _, err := c.Remote.Retry.MaxBackoff(); err != nil {
+			return err
+		}
+	}
+
+	// Validate backoff_multiplier if configured
+	// Guard against ≤0 or <1 values: math.Pow yields zero/negative delays causing immediate retry hammering
+	if c.Remote.Retry.BackoffMultiplier != 0 {
+		if c.Remote.Retry.BackoffMultiplier < 1.0 {
+			return fmt.Errorf("retry.backoff_multiplier must be >= 1.0, got %v", c.Remote.Retry.BackoffMultiplier)
+		}
 	}
 
 	// Validate metric intervals
