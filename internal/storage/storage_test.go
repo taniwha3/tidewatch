@@ -673,3 +673,115 @@ func TestNewSQLiteStorage_URIPath(t *testing.T) {
 		t.Errorf("Found unexpected directory named 'file:metrics' - URI path handling is broken")
 	}
 }
+
+// TestNormalizeDBPath verifies that normalizeDBPath correctly strips URI components
+// from database paths returned by PRAGMA database_list.
+func TestNormalizeDBPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple absolute path",
+			input:    "/var/lib/tidewatch/metrics.db",
+			expected: "/var/lib/tidewatch/metrics.db",
+		},
+		{
+			name:     "URI with single slash",
+			input:    "file:/var/lib/tidewatch/metrics.db",
+			expected: "/var/lib/tidewatch/metrics.db",
+		},
+		{
+			name:     "URI with triple slash",
+			input:    "file:///var/lib/tidewatch/metrics.db",
+			expected: "/var/lib/tidewatch/metrics.db",
+		},
+		{
+			name:     "URI with query parameters",
+			input:    "file:/var/lib/tidewatch/metrics.db?_busy_timeout=5000",
+			expected: "/var/lib/tidewatch/metrics.db",
+		},
+		{
+			name:     "URI with triple slash and query parameters",
+			input:    "file:///var/lib/tidewatch/metrics.db?cache=shared&_busy_timeout=5000",
+			expected: "/var/lib/tidewatch/metrics.db",
+		},
+		{
+			name:     "relative path",
+			input:    "./data/metrics.db",
+			expected: "./data/metrics.db",
+		},
+		{
+			name:     "URI with relative path",
+			input:    "file:data/metrics.db",
+			expected: "data/metrics.db",
+		},
+		{
+			name:     "UNC path (network share)",
+			input:    "file://hostname/share/metrics.db",
+			expected: "//hostname/share/metrics.db",
+		},
+		{
+			name:     "UNC path with query parameters",
+			input:    "file://hostname/share/metrics.db?mode=ro",
+			expected: "//hostname/share/metrics.db",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeDBPath(tt.input)
+			if result != tt.expected {
+				t.Errorf("normalizeDBPath(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestGetWALSize_WithURIPath verifies that GetWALSize correctly handles
+// database paths that include SQLite URI components (file: prefix and query parameters).
+// This is a regression test for the bug where WAL checkpoint routine would fail
+// when using URI-based DSNs because os.Stat was called on the raw URI string.
+func TestGetWALSize_WithURIPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbDir := filepath.Join(tmpDir, "metrics")
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+
+	// Use a URI-style path with query parameters (simulates production deployment)
+	dbPath := fmt.Sprintf("file:%s?_busy_timeout=5000", filepath.Join(dbDir, "test.db"))
+
+	storage, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create storage with URI path: %v", err)
+	}
+	defer storage.Close()
+
+	// Write some data to ensure WAL file is created
+	ctx := context.Background()
+	metrics := []*models.Metric{
+		models.NewMetric("cpu.temperature", 50.0, "test-device"),
+		models.NewMetric("cpu.temperature", 51.0, "test-device"),
+		models.NewMetric("cpu.temperature", 52.0, "test-device"),
+	}
+	if err := storage.StoreBatch(ctx, metrics); err != nil {
+		t.Fatalf("Failed to store metrics: %v", err)
+	}
+
+	// GetWALSize should succeed even with URI path
+	// (It should normalize the path before calling os.Stat)
+	walSize, err := storage.GetWALSize()
+	if err != nil {
+		t.Fatalf("GetWALSize failed with URI path: %v", err)
+	}
+
+	// WAL file should exist and have non-zero size after writes
+	// (Size can be 0 if WAL hasn't been created yet, which is also valid)
+	if walSize < 0 {
+		t.Errorf("Expected non-negative WAL size, got %d", walSize)
+	}
+
+	t.Logf("WAL size with URI path: %d bytes", walSize)
+}

@@ -820,6 +820,43 @@ func (s *SQLiteStorage) GetMetricStats(ctx context.Context) (map[string]int64, e
 	return stats, nil
 }
 
+// normalizeDBPath strips SQLite URI components from a database path.
+// Handles paths returned by PRAGMA database_list which may include:
+// - file: prefix (e.g., "file:/var/lib/db.db")
+// - Query parameters (e.g., "file:/var/lib/db.db?_busy_timeout=5000")
+// - Multiple slashes (e.g., "file:///var/lib/db.db")
+//
+// Returns a clean filesystem path suitable for use with os.Stat.
+// UNC paths (file://hostname/path) are preserved as //hostname/path.
+func normalizeDBPath(dbPath string) string {
+	path := dbPath
+
+	// Handle SQLite URI format (file:...)
+	if strings.HasPrefix(path, "file:") {
+		// Strip "file:" prefix
+		path = strings.TrimPrefix(path, "file:")
+
+		// Strip any query parameters (everything after ?)
+		if idx := strings.Index(path, "?"); idx != -1 {
+			path = path[:idx]
+		}
+
+		// Handle SQLite URI formats:
+		// - file:///path (three slashes) -> /path (absolute Unix path)
+		// - file://host/path (two slashes + host) -> //host/path (UNC path - keep both slashes!)
+		// - file:/path (one slash) -> /path (absolute path)
+		// - file:path (no slash) -> path (relative path)
+		if strings.HasPrefix(path, "///") {
+			// file:///absolute/path -> /absolute/path
+			path = path[2:] // Remove two slashes, keep the third as leading /
+		}
+		// DO NOT strip slashes from UNC paths (//hostname/path)
+		// They need to remain as //hostname/path for os.Stat to work correctly
+	}
+
+	return path
+}
+
 // CheckpointWAL performs a WAL checkpoint to reclaim space
 func (s *SQLiteStorage) CheckpointWAL(ctx context.Context) error {
 	// Use Exec to avoid the 2-vs-3 value scan issue mentioned in engineering review
@@ -840,8 +877,12 @@ func (s *SQLiteStorage) GetWALSize() (int64, error) {
 		return 0, fmt.Errorf("failed to get database path: %w", err)
 	}
 
+	// Normalize the path to strip URI components (file: prefix, query params)
+	// This handles SQLite URIs like file:/path/db.db?_busy_timeout=5000
+	normalizedPath := normalizeDBPath(path)
+
 	// WAL file is database_path + "-wal"
-	walPath := path + "-wal"
+	walPath := normalizedPath + "-wal"
 	info, err := os.Stat(walPath)
 	if os.IsNotExist(err) {
 		return 0, nil // No WAL file yet
